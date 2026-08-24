@@ -8,6 +8,17 @@ version = "0.1.0"
 description = "Trading strategy research and development"
 requires-python = ">=3.11"
 readme = "README.md"
+dependencies = [
+    "yfinance",
+    "pandas",
+    "pyarrow",
+    "numpy",
+    "matplotlib",
+    "mplfinance",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
