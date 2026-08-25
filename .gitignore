@@ -31,3 +31,6 @@ Thumbs.db
 
 # Kept local-only, not for GitHub
 docs/v1-spec.md
+
+# Game corpus and personal play history -- local only, never pushed
+data/
