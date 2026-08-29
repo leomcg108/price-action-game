@@ -85,15 +85,25 @@ def _style_axes(ax, ylim: tuple[float, float], total_bars: int) -> None:
     ax.grid(False)
 
 
-def render(view: PuzzleView):
+def _draw_round_counter(ax, round_num: int, total_rounds: int) -> None:
+    """Small, muted "n/total" in the top-right corner. Round progress only --
+    not a score, not a tally of correct/incorrect, so it doesn't run into the
+    "no running score" rule: it can't be read as a performance number."""
+    ax.text(
+        0.97, 0.94, f"{round_num}/{total_rounds}",
+        transform=ax.transAxes, ha="right", va="top",
+        fontsize=9, color="#999999",
+    )
+
+
+def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1):
     """Render the question: lookback candles only, with the horizon's width
     reserved as empty space to the right.
 
-    The signature accepts PuzzleView only. This is what structurally enforces
-    non-negotiable #1 -- there is no horizon data in scope here to leak.
-    `view.horizon_width` is just a bar count (a session setting the player
-    already chose), not price data, so using it to size the reserved space
-    doesn't compromise that.
+    The signature accepts PuzzleView plus two plain session-progress ints --
+    never PuzzleAnswer or anything derived from it. That's what structurally
+    enforces non-negotiable #1; round_num/total_rounds can't carry price or
+    outcome data no matter what.
     """
     total_bars = config.LOOKBACK_BARS + view.horizon_width
     frame = _to_mpf_frame(view.bars, total_bars)
@@ -110,6 +120,7 @@ def render(view: PuzzleView):
     )
     ax = axlist[0]
     _style_axes(ax, _range_ylim(view.bars), total_bars)
+    _draw_round_counter(ax, round_num, total_rounds)
 
     return fig, ax
 
@@ -135,6 +146,8 @@ def reveal(fig, ax, view: PuzzleView, answer: PuzzleAnswer, correct: bool) -> No
 
     ylim = _expand_ylim(_range_ylim(view.bars), view.bars, answer.horizon_bars)
     _style_axes(ax, ylim, total_bars)
+    # marks the lookback/horizon boundary -- only ever drawn here, on reveal
+    ax.axvline(config.LOOKBACK_BARS - 0.5, linestyle=":", color="#999999", linewidth=1)
     _draw_result_mark(ax, correct)
 
     if config.REVEAL_IDENTITY:
@@ -244,6 +257,8 @@ def play_round(
     corpus: Corpus,
     rng: random.Random,
     session_id: str,
+    round_num: int = 1,
+    total_rounds: int = 1,
     horizon_bars: int = config.HORIZON_BARS,
     key_getter=_wait_for_key,
     advance_getter=_wait_for_any_key,
@@ -252,13 +267,16 @@ def play_round(
     """Play one round: render, wait for a guess, reveal. Returns None if the
     player quit instead of answering.
 
+    `round_num`/`total_rounds` are only used for the on-chart "n/total"
+    progress indicator -- purely a position in the session, not a score.
+
     `key_getter`/`advance_getter` default to the real blocking waiters on a
     matplotlib figure; tests inject fakes so the loop logic can be exercised
     without a live GUI event loop.
     """
     view, answer = generate_puzzle(corpus, rng, horizon_bars=horizon_bars)
 
-    fig, ax = render(view)
+    fig, ax = render(view, round_num, total_rounds)
     fig.show()
     shown_at = datetime.now(timezone.utc)
 
@@ -323,9 +341,9 @@ def run_session(
     session_id = session_id or str(uuid.uuid4())
 
     results = []
-    for _ in range(rounds):
+    for round_num in range(1, rounds + 1):
         result = play_round(
-            corpus, rng, session_id, horizon_bars=horizon_bars,
+            corpus, rng, session_id, round_num=round_num, total_rounds=rounds, horizon_bars=horizon_bars,
             key_getter=key_getter, advance_getter=advance_getter, on_round=on_round,
         )
         if result is None:
