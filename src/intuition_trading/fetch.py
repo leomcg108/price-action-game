@@ -9,10 +9,10 @@ permanently lost.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import logging
-import random
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,7 +28,9 @@ logger = logging.getLogger(__name__)
 WINDOW_DAYS = 7
 N_WINDOWS = 4
 MAX_RETRIES = 3
-INTER_REQUEST_SLEEP = (1.0, 2.0)  # seconds, uniform range
+# No proactive rate-limiting between requests -- back-to-back requests for
+# 500+ tickers have been reliable in practice. MAX_RETRIES/backoff below is
+# the reactive safety net if Yahoo ever does return a 429.
 
 
 def _fetch_window(ticker: str, start: datetime, end: datetime) -> pd.DataFrame:
@@ -71,7 +73,6 @@ def _fetch_raw(ticker: str) -> pd.DataFrame | None:
             continue
         if df is not None and not df.empty:
             chunks.append(df)
-        time.sleep(random.uniform(*INTER_REQUEST_SLEEP))
     if not chunks:
         return None
     return pd.concat(chunks)
@@ -188,8 +189,34 @@ def write_manifest(universe: list[str]) -> dict:
     return manifest
 
 
+def _load_sp500_tickers(path: Path = config.SP500_CSV) -> list[str]:
+    """Read the "Symbol" column of the S&P 500 constituents csv.
+
+    Yahoo uses a dash where the index listing uses a dot (BRK.B -> BRK-B).
+    """
+    if not path.exists():
+        logger.warning("sp500 csv not found at %s; universe falls back to UNIVERSE only", path)
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        return [row["Symbol"].strip().replace(".", "-") for row in reader if row.get("Symbol")]
+
+
+def build_universe() -> list[str]:
+    """config.UNIVERSE unioned with the S&P 500 constituents.
+
+    UNIVERSE is kept as the default/backup set: it's what you get if the csv
+    is missing, and it's always included even when the csv is present (this
+    is also what keeps index ETFs like SPY/QQQ in scope, since they aren't
+    S&P 500 constituents themselves).
+    """
+    sp500 = _load_sp500_tickers()
+    return sorted(set(config.UNIVERSE) | set(sp500))
+
+
 def main(tickers: list[str] | None = None) -> None:
-    universe = tickers or config.UNIVERSE
+    universe = tickers or build_universe()
+    logger.info("fetching %d tickers", len(universe))
     config.BARS_DIR.mkdir(parents=True, exist_ok=True)
 
     failures = []
@@ -199,7 +226,6 @@ def main(tickers: list[str] | None = None) -> None:
         except Exception:
             logger.exception("failed to fetch %s", ticker)
             failures.append(ticker)
-        time.sleep(random.uniform(*INTER_REQUEST_SLEEP))
 
     manifest = write_manifest(universe)
     logger.info(

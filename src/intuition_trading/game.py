@@ -22,15 +22,14 @@ from intuition_trading.puzzles import Corpus, PuzzleAnswer, PuzzleView, generate
 
 _STYLE = mpf.make_mpf_style(base_mpf_style="yahoo", gridstyle="")
 
-_TOTAL_BARS = config.LOOKBACK_BARS + config.HORIZON_BARS
-
 
 # --- Chart -------------------------------------------------------------
 
 
-def _to_mpf_frame(bars: pd.DataFrame) -> pd.DataFrame:
+def _to_mpf_frame(bars: pd.DataFrame, total_bars: int) -> pd.DataFrame:
     """Lay `bars` onto a synthetic, contiguous 1-minute timeline and pad it
-    out to LOOKBACK_BARS + HORIZON_BARS rows with NaN OHLC.
+    out to `total_bars` (LOOKBACK_BARS + the session's chosen horizon) rows
+    with NaN OHLC.
 
     mplfinance plots at sequential integer positions regardless of the actual
     calendar spacing of a DatetimeIndex, so this both avoids gaps in the
@@ -38,17 +37,17 @@ def _to_mpf_frame(bars: pd.DataFrame) -> pd.DataFrame:
     simply leaves blank -- reserves the horizon's width as empty space
     without ever handing mplfinance real horizon data.
     """
-    synthetic_index = pd.date_range("2000-01-01", periods=_TOTAL_BARS, freq="1min")
+    synthetic_index = pd.date_range("2000-01-01", periods=total_bars, freq="1min")
     frame = pd.DataFrame(index=synthetic_index, columns=["Open", "High", "Low", "Close"], dtype=float)
     frame.iloc[: len(bars)] = bars[["open", "high", "low", "close"]].to_numpy()
     return frame
 
 
-def _horizon_frame(horizon_bars: pd.DataFrame) -> pd.DataFrame:
+def _horizon_frame(horizon_bars: pd.DataFrame, total_bars: int) -> pd.DataFrame:
     """Horizon bars laid onto the same synthetic timeline, at the offset
     right after the lookback, with everything before left NaN so replotting
     onto the existing axes only adds the new candles."""
-    synthetic_index = pd.date_range("2000-01-01", periods=_TOTAL_BARS, freq="1min")
+    synthetic_index = pd.date_range("2000-01-01", periods=total_bars, freq="1min")
     frame = pd.DataFrame(index=synthetic_index, columns=["Open", "High", "Low", "Close"], dtype=float)
     frame.iloc[config.LOOKBACK_BARS :] = horizon_bars[["open", "high", "low", "close"]].to_numpy()
     return frame
@@ -72,11 +71,11 @@ def _expand_ylim(
     return min(current[0], lo), max(current[1], hi)
 
 
-def _style_axes(ax, ylim: tuple[float, float]) -> None:
-    ax.set_xlim(-0.5, _TOTAL_BARS - 0.5)
+def _style_axes(ax, ylim: tuple[float, float], total_bars: int) -> None:
+    ax.set_xlim(-0.5, total_bars - 0.5)
     ax.set_ylim(*ylim)
 
-    ticks = list(range(0, _TOTAL_BARS, 10))
+    ticks = list(range(0, total_bars, 10))
     ax.set_xticks(ticks)
     ax.set_xticklabels([str(t) for t in ticks])
     ax.set_xlabel("bar index")
@@ -92,8 +91,12 @@ def render(view: PuzzleView):
 
     The signature accepts PuzzleView only. This is what structurally enforces
     non-negotiable #1 -- there is no horizon data in scope here to leak.
+    `view.horizon_width` is just a bar count (a session setting the player
+    already chose), not price data, so using it to size the reserved space
+    doesn't compromise that.
     """
-    frame = _to_mpf_frame(view.bars)
+    total_bars = config.LOOKBACK_BARS + view.horizon_width
+    frame = _to_mpf_frame(view.bars, total_bars)
 
     fig, axlist = mpf.plot(
         frame,
@@ -106,7 +109,7 @@ def render(view: PuzzleView):
         tight_layout=True,
     )
     ax = axlist[0]
-    _style_axes(ax, _range_ylim(view.bars))
+    _style_axes(ax, _range_ylim(view.bars), total_bars)
 
     return fig, ax
 
@@ -126,11 +129,12 @@ def _draw_result_mark(ax, correct: bool) -> None:
 def reveal(fig, ax, view: PuzzleView, answer: PuzzleAnswer, correct: bool) -> None:
     """Draw the horizon into the reserved space, expand y-limits if needed,
     and mark the result. The reveal is permitted to see the future."""
-    frame = _horizon_frame(answer.horizon_bars)
+    total_bars = config.LOOKBACK_BARS + view.horizon_width
+    frame = _horizon_frame(answer.horizon_bars, total_bars)
     mpf.plot(frame, type="candle", style=_STYLE, ax=ax, volume=False, datetime_format=" ", xrotation=0)
 
     ylim = _expand_ylim(_range_ylim(view.bars), view.bars, answer.horizon_bars)
-    _style_axes(ax, ylim)
+    _style_axes(ax, ylim, total_bars)
     _draw_result_mark(ax, correct)
 
     if config.REVEAL_IDENTITY:
@@ -240,6 +244,7 @@ def play_round(
     corpus: Corpus,
     rng: random.Random,
     session_id: str,
+    horizon_bars: int = config.HORIZON_BARS,
     key_getter=_wait_for_key,
     advance_getter=_wait_for_any_key,
     on_round=lambda result: None,
@@ -251,7 +256,7 @@ def play_round(
     matplotlib figure; tests inject fakes so the loop logic can be exercised
     without a live GUI event loop.
     """
-    view, answer = generate_puzzle(corpus, rng)
+    view, answer = generate_puzzle(corpus, rng, horizon_bars=horizon_bars)
 
     fig, ax = render(view)
     fig.show()
@@ -304,18 +309,24 @@ def run_session(
     rounds: int = config.SESSION_ROUNDS,
     seed: int | None = None,
     session_id: str | None = None,
+    horizon_bars: int = config.HORIZON_BARS,
     on_round=lambda result: None,
     key_getter=_wait_for_key,
     advance_getter=_wait_for_any_key,
 ) -> list[RoundResult]:
-    """Play a fixed-length session. Stops early if the player quits."""
+    """Play a fixed-length session. Stops early if the player quits.
+
+    `horizon_bars` (one of config.HORIZON_OPTIONS) applies to every round in
+    the session -- it's a session setting, not a per-round one.
+    """
     rng = random.Random(seed) if seed is not None else random.Random()
     session_id = session_id or str(uuid.uuid4())
 
     results = []
     for _ in range(rounds):
         result = play_round(
-            corpus, rng, session_id, key_getter=key_getter, advance_getter=advance_getter, on_round=on_round
+            corpus, rng, session_id, horizon_bars=horizon_bars,
+            key_getter=key_getter, advance_getter=advance_getter, on_round=on_round,
         )
         if result is None:
             break
@@ -333,11 +344,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=config.SESSION_ROUNDS)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument(
+        "--horizon", type=int, choices=config.HORIZON_OPTIONS, default=config.HORIZON_BARS,
+        help="prediction horizon in minutes",
+    )
     args = parser.parse_args()
 
     corpus = load_corpus()
     session_id = str(uuid.uuid4())
-    run_session(corpus, rounds=args.rounds, seed=args.seed, session_id=session_id, on_round=log_round)
+    run_session(
+        corpus, rounds=args.rounds, seed=args.seed, session_id=session_id,
+        horizon_bars=args.horizon, on_round=log_round,
+    )
 
     print()
     stats.print_summary(session_id)

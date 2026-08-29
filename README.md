@@ -47,7 +47,9 @@ git clone https://github.com/leomcg108/price-action-game.git
 cd price-action-game
 pip install -e .
 
-# Build the corpus. Takes a few minutes — Yahoo rate-limits.
+# Build the corpus. The default universe is 500+ tickers; no artificial
+# rate-limiting, so a full run is a few minutes. Use --tickers for a quick
+# subset instead: python -m intuition_trading.fetch --tickers AAPL,SPY
 python -m intuition_trading.fetch
 
 # Play
@@ -79,8 +81,8 @@ Set that up before you write a line of anything else. A month from now you'll
 have a month of minute bars. A year from now you'll have a year of data that
 otherwise costs real money.
 
-Your first session will draw from ~21 trading days across 22 tickers, which is
-around 2,000 distinct non-overlapping windows. You will not run out.
+Your first session will draw from ~21 trading days across 500+ tickers, which
+is tens of thousands of distinct non-overlapping windows. You will not run out.
 
 ### On Yahoo
 
@@ -94,16 +96,25 @@ Yahoo's terms of service first.
 
 ## Universe
 
-Twenty large caps plus two index ETFs, chosen for liquidity and clean minute
-data:
+Two parts, combined at fetch time:
 
-```
-AAPL  MSFT  NVDA  AMZN  GOOGL  META  TSLA  AVGO  JPM  V
-UNH   XOM   JNJ   WMT   PG     HD    MA    COST  CVX  LLY
-SPY   QQQ
-```
+- **`UNIVERSE`** in `config.py` — twenty large caps plus two index ETFs,
+  chosen for liquidity and clean minute data. This is also the fallback: if
+  the S&P 500 list below isn't present, this is the whole universe.
 
-Edit `UNIVERSE` in `config.py` to change it. Thinner names will have gappier
+  ```
+  AAPL  MSFT  NVDA  AMZN  GOOGL  META  TSLA  AVGO  JPM  V
+  UNH   XOM   JNJ   WMT   PG     HD    MA    COST  CVX  LLY
+  SPY   QQQ
+  ```
+
+- **`docs/sp500.csv`** — the full S&P 500 constituent list (Wikipedia export
+  format; only the `Symbol` column is used). `fetch.py` unions it with
+  `UNIVERSE`, so the two index ETFs above stay in scope even though they
+  aren't constituents themselves. Dots in tickers (`BRK.B`) are converted to
+  the dash Yahoo expects (`BRK-B`) automatically.
+
+Together that's 500+ tickers by default. Thinner names will have gappier
 minute bars; the cleaning rules will drop more of their days.
 
 ---
@@ -253,11 +264,11 @@ All in `config.py`:
 | Setting | Default | Notes |
 |---------|---------|-------|
 | `LOOKBACK_BARS` | `60` | Visible history, one hour |
-| `HORIZON_BARS` | `10` | Prediction horizon |
+| `HORIZON_OPTIONS` | `(10, 20, 30)` | Selectable prediction horizons, in minutes, via `--horizon` |
 | `SESSION_ROUNDS` | `20` | Overridable per session via CLI |
 | `MIN_BARS_PER_DAY` | `385` | Of 390; drops gappy days and half-days |
 | `REVEAL_IDENTITY` | `False` | Show ticker and date after the reveal |
-| `UNIVERSE` | 22 symbols | See above |
+| `UNIVERSE` | 22 symbols | Default/backup set — see [Universe](#universe) |
 
 ### `REVEAL_IDENTITY`
 

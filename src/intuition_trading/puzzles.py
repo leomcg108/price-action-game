@@ -25,8 +25,13 @@ class Corpus:
 
 def _min_session_bars() -> int:
     """A session needs enough bars for an anchor to sit with a full lookback
-    behind it and a full horizon ahead of it, both within the same session."""
-    return config.LOOKBACK_BARS + config.HORIZON_BARS
+    behind it and a full horizon ahead of it, both within the same session.
+
+    Indexed against the longest selectable horizon so that every session in
+    `valid_sessions` supports any of HORIZON_OPTIONS, not just the default --
+    the corpus is loaded once, before a session's horizon choice is known.
+    """
+    return config.LOOKBACK_BARS + max(config.HORIZON_OPTIONS)
 
 
 def _load_corpus_version() -> str:
@@ -85,6 +90,11 @@ class PuzzleView:
 
     bars: pd.DataFrame  # lookback bars only, normalised
     puzzle_id: str
+    # Width of the reserved space, in bars. A session setting the player
+    # already chose before playing, not price data -- safe to expose here.
+    # Named differently from PuzzleAnswer.horizon_bars (the actual DataFrame)
+    # on purpose, so the two are never confused for one another.
+    horizon_width: int
 
 
 @dataclass(frozen=True)
@@ -103,8 +113,13 @@ class PuzzleAnswer:
     minutes_from_open: int
 
 
-def _puzzle_id(corpus_version: str, ticker: str, session_date: date, anchor_idx: int) -> str:
-    payload = f"{corpus_version}|{ticker}|{session_date}|{anchor_idx}"
+def _puzzle_id(
+    corpus_version: str, ticker: str, session_date: date, anchor_idx: int, horizon_bars: int
+) -> str:
+    # horizon_bars is part of the identity, not just corpus_version/ticker/
+    # session_date/anchor_idx: the same anchor with a different horizon is a
+    # different puzzle (different horizon bars, possibly a different label).
+    payload = f"{corpus_version}|{ticker}|{session_date}|{anchor_idx}|{horizon_bars}"
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
@@ -130,12 +145,17 @@ def _normalize(df: pd.DataFrame, anchor_close: float) -> pd.DataFrame:
     return (df[cols] / anchor_close - 1.0) * 100.0
 
 
-def generate_puzzle(corpus: Corpus, rng: random.Random) -> tuple[PuzzleView, PuzzleAnswer]:
+def generate_puzzle(
+    corpus: Corpus, rng: random.Random, horizon_bars: int = config.HORIZON_BARS
+) -> tuple[PuzzleView, PuzzleAnswer]:
     """Sample one puzzle from the corpus.
 
     `rng` controls determinism: pass a `random.Random(seed)` shared across a
     session's rounds for a reproducible sequence, or a fresh unseeded
     `random.Random()` (the default for normal play) for one that isn't.
+
+    `horizon_bars` is a session-wide setting (one of config.HORIZON_OPTIONS),
+    not something that varies puzzle to puzzle within a session.
     """
     if not corpus.valid_sessions:
         raise ValueError("corpus has no sessions long enough to generate a puzzle")
@@ -145,20 +165,22 @@ def generate_puzzle(corpus: Corpus, rng: random.Random) -> tuple[PuzzleView, Puz
         session = session_bars(corpus, ticker, session_date)
         n = len(session)
 
-        anchor_idx = rng.randint(config.LOOKBACK_BARS - 1, n - config.HORIZON_BARS - 1)
+        anchor_idx = rng.randint(config.LOOKBACK_BARS - 1, n - horizon_bars - 1)
 
         lookback = session.iloc[anchor_idx - config.LOOKBACK_BARS + 1 : anchor_idx + 1]
-        horizon = session.iloc[anchor_idx + 1 : anchor_idx + 1 + config.HORIZON_BARS]
+        horizon = session.iloc[anchor_idx + 1 : anchor_idx + 1 + horizon_bars]
 
         anchor_close = float(session["close"].iloc[anchor_idx])
-        horizon_close = float(session["close"].iloc[anchor_idx + config.HORIZON_BARS])
+        horizon_close = float(session["close"].iloc[anchor_idx + horizon_bars])
 
         if horizon_close == anchor_close:
             continue  # exact tie: rare enough not to warrant a dedicated path
 
-        puzzle_id = _puzzle_id(corpus.corpus_version, ticker, session_date, anchor_idx)
+        puzzle_id = _puzzle_id(corpus.corpus_version, ticker, session_date, anchor_idx, horizon_bars)
 
-        view = PuzzleView(bars=_normalize(lookback, anchor_close), puzzle_id=puzzle_id)
+        view = PuzzleView(
+            bars=_normalize(lookback, anchor_close), puzzle_id=puzzle_id, horizon_width=horizon_bars
+        )
 
         answer = PuzzleAnswer(
             puzzle_id=puzzle_id,
