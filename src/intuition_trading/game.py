@@ -148,6 +148,10 @@ def reveal(fig, ax, view: PuzzleView, answer: PuzzleAnswer, correct: bool) -> No
     _style_axes(ax, ylim, total_bars)
     # marks the lookback/horizon boundary -- only ever drawn here, on reveal
     ax.axvline(config.LOOKBACK_BARS - 0.5, linestyle=":", color="#999999", linewidth=1)
+    # anchor close (always 0.0, by normalisation) and the final horizon
+    # close, so the size of the move is visible at a glance -- also reveal-only
+    ax.axhline(0.0, linestyle=":", color="#999999", linewidth=1)
+    ax.axhline(answer.horizon_bars["close"].iloc[-1], linestyle=":", color="#999999", linewidth=1)
     _draw_result_mark(ax, correct)
 
     if config.REVEAL_IDENTITY:
