@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import mplfinance as mpf
 import pandas as pd
 from matplotlib.ticker import FuncFormatter
+from matplotlib.widgets import Button
 
 from intuition_trading import config
 from intuition_trading.puzzles import Corpus, PuzzleAnswer, PuzzleView, generate_puzzle
@@ -96,6 +97,93 @@ def _draw_round_counter(ax, round_num: int, total_rounds: int) -> None:
     )
 
 
+_CHART_BOTTOM = 0.27  # figure-fraction y where the chart's own axes start
+
+
+def _reserve_button_space(fig, ax) -> None:
+    """Shrink the main chart axes (and mplfinance's hidden twin, which
+    shares its position exactly) to leave room at the bottom for tick
+    labels and the buttons.
+
+    fig.subplots_adjust() has no effect here: mplfinance positions its axes
+    directly via set_position()/add_axes(), bypassing the subplot grid that
+    subplots_adjust controls.
+    """
+    old_bounds = ax.get_position().bounds
+    x0, y0, width, height = old_bounds
+    top = y0 + height
+    new_pos = [x0, _CHART_BOTTOM, width, top - _CHART_BOTTOM]
+    for a in fig.axes:
+        if a.get_position().bounds == old_bounds:
+            a.set_position(new_pos)
+
+
+def _draw_arrow(bax, direction: str, color: str) -> None:
+    """A thick, colour-coordinated arrow -- the button's only marking, drawn
+    on the button's own axes rather than relying on font glyphs/weight."""
+    bax.set_xlim(0, 1)
+    bax.set_ylim(0, 1)
+    # no axis('off') here -- that hides the button's own background patch
+    # (fill + border) along with the ticks; Button already starts tickless.
+    endpoints = {
+        "down": ((0.5, 0.75), (0.5, 0.25)),
+        "up": ((0.5, 0.25), (0.5, 0.75)),
+        "right": ((0.25, 0.5), (0.75, 0.5)),
+    }
+    xytext, xy = endpoints[direction]
+    bax.annotate(
+        "", xy=xy, xytext=xytext,
+        arrowprops=dict(arrowstyle="-|>", color=color, lw=4, mutation_scale=28),
+    )
+
+
+def _install_buttons(fig) -> None:
+    """Square Down/Up/Next buttons at the bottom of the figure -- an
+    optional mouse path alongside the keyboard shortcuts, not a replacement
+    for them. No quit button: quitting stays a deliberate keyboard action.
+
+    Clicking one writes the matching key name into fig._clicked_key and
+    stops whatever event loop is currently blocking, exactly like pressing
+    the key would; _wait_for_key/_wait_for_any_key read from that same
+    attribute, so both input paths are handled by one code path there.
+    _wait_for_key additionally filters out clicks that aren't valid for the
+    current phase (e.g. Next during guessing), the same as it already does
+    for stray keypresses.
+    """
+    fig._clicked_key = None
+
+    def make_handler(key: str):
+        def handler(_event):
+            fig._clicked_key = key
+            fig.canvas.stop_event_loop()
+
+        return handler
+
+    # figure-fraction units aren't square pixels -- scale height by the
+    # figure's aspect ratio so the buttons render as actual squares.
+    fig_w, fig_h = fig.get_size_inches()
+    width = 0.09
+    height = width * (fig_w / fig_h)
+    gap = 0.03
+    y = 0.06
+    left0 = 0.5 - (3 * width + 2 * gap) / 2
+
+    specs = [("down", "#c62828"), ("up", "#2e7d32"), ("right", "#616161")]
+    buttons = []
+    for i, (direction, color) in enumerate(specs):
+        left = left0 + i * (width + gap)
+        bax = fig.add_axes([left, y, width, height])
+        button = Button(bax, "", color="#eeeeee", hovercolor="#e0e0e0")
+        bax.patch.set_edgecolor("#bbbbbb")
+        bax.patch.set_linewidth(1)
+        _draw_arrow(bax, direction, color)
+        key = "next" if direction == "right" else direction
+        button.on_clicked(make_handler(key))
+        buttons.append(button)
+
+    fig._buttons = buttons  # keep references alive -- matplotlib drops unreferenced widgets
+
+
 def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1):
     """Render the question: lookback candles only, with the horizon's width
     reserved as empty space to the right.
@@ -121,6 +209,9 @@ def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1):
     ax = axlist[0]
     _style_axes(ax, _range_ylim(view.bars), total_bars)
     _draw_round_counter(ax, round_num, total_rounds)
+
+    _reserve_button_space(fig, ax)
+    _install_buttons(fig)
 
     return fig, ax
 
@@ -164,26 +255,38 @@ def reveal(fig, ax, view: PuzzleView, answer: PuzzleAnswer, correct: bool) -> No
 
 
 def _wait_for_key(fig, valid_keys: tuple[str, ...]) -> str:
-    """Block until one of `valid_keys` is pressed. All other keys are ignored."""
-    pressed: dict[str, str] = {}
+    """Block until one of `valid_keys` is pressed or clicked. All other
+    input is ignored and waiting resumes.
+
+    Button clicks (see _install_buttons) always stop the event loop -- they
+    aren't phase-aware, unlike the keyboard handler below, which only stops
+    it for a valid_keys match. So a click on a button whose key isn't valid
+    right now (e.g. Next during guessing) would otherwise end the wait
+    early with an invalid result; looping here re-blocks instead, exactly
+    as if that click, like a stray keypress, had been ignored.
+    """
 
     def on_key(event):
         if event.key in valid_keys:
-            pressed["key"] = event.key
+            fig._clicked_key = event.key
             fig.canvas.stop_event_loop()
 
     cid = fig.canvas.mpl_connect("key_press_event", on_key)
-    fig.canvas.start_event_loop(timeout=-1)
+    while True:
+        fig._clicked_key = None
+        fig.canvas.start_event_loop(timeout=-1)
+        if fig._clicked_key in valid_keys:
+            break
     fig.canvas.mpl_disconnect(cid)
-    return pressed["key"]
+    return fig._clicked_key
 
 
 def _wait_for_any_key(fig) -> None:
-    """Block until any key is pressed."""
-    pressed: dict[str, str] = {}
+    """Block until any key is pressed or a button is clicked."""
+    fig._clicked_key = None
 
     def on_key(event):
-        pressed["key"] = event.key
+        fig._clicked_key = event.key
         fig.canvas.stop_event_loop()
 
     cid = fig.canvas.mpl_connect("key_press_event", on_key)
