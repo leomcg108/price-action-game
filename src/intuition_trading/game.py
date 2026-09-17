@@ -97,25 +97,16 @@ def _draw_round_counter(ax, round_num: int, total_rounds: int) -> None:
     )
 
 
-_CHART_BOTTOM = 0.27  # figure-fraction y where the chart's own axes start
+_FIGSIZE = (8.0, 5.75)  # mplfinance's default figure size
+# figure-fraction [left, bottom, width, height] of the chart axes, leaving
+# room at the bottom for tick labels and the buttons
+_CHART_RECT = [0.108, 0.27, 0.868, 0.70]
 
 
-def _reserve_button_space(fig, ax) -> None:
-    """Shrink the main chart axes (and mplfinance's hidden twin, which
-    shares its position exactly) to leave room at the bottom for tick
-    labels and the buttons.
-
-    fig.subplots_adjust() has no effect here: mplfinance positions its axes
-    directly via set_position()/add_axes(), bypassing the subplot grid that
-    subplots_adjust controls.
-    """
-    old_bounds = ax.get_position().bounds
-    x0, y0, width, height = old_bounds
-    top = y0 + height
-    new_pos = [x0, _CHART_BOTTOM, width, top - _CHART_BOTTOM]
-    for a in fig.axes:
-        if a.get_position().bounds == old_bounds:
-            a.set_position(new_pos)
+def new_figure():
+    """The one figure a session draws every round into. Reusing it keeps the
+    window where the player put it, instead of a new window per round."""
+    return mpf.figure(style=_STYLE, figsize=_FIGSIZE)
 
 
 def _draw_arrow(bax, direction: str, color: str) -> None:
@@ -184,34 +175,33 @@ def _install_buttons(fig) -> None:
     fig._buttons = buttons  # keep references alive -- matplotlib drops unreferenced widgets
 
 
-def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1):
+def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1, fig=None):
     """Render the question: lookback candles only, with the horizon's width
     reserved as empty space to the right.
 
-    The signature accepts PuzzleView plus two plain session-progress ints --
-    never PuzzleAnswer or anything derived from it. That's what structurally
-    enforces non-negotiable #1; round_num/total_rounds can't carry price or
-    outcome data no matter what.
+    The signature accepts PuzzleView plus two plain session-progress ints and
+    the figure to draw into -- never PuzzleAnswer or anything derived from
+    it. That's what structurally enforces non-negotiable #1; round_num/
+    total_rounds can't carry price or outcome data no matter what.
+
+    `fig` is cleared completely first, so nothing from the previous round's
+    reveal (horizon candles, limits, result mark) survives into this question.
     """
     total_bars = config.LOOKBACK_BARS + view.horizon_width
     frame = _to_mpf_frame(view.bars, total_bars)
 
-    fig, axlist = mpf.plot(
-        frame,
-        type="candle",
-        style=_STYLE,
-        returnfig=True,
-        volume=False,
-        datetime_format=" ",
-        xrotation=0,
-        tight_layout=True,
-    )
-    ax = axlist[0]
+    if fig is None:
+        fig = new_figure()
+    else:
+        fig.clf()
+
+    ax = fig.add_axes(_CHART_RECT)
+    mpf.plot(frame, type="candle", style=_STYLE, ax=ax, volume=False, datetime_format=" ", xrotation=0)
     _style_axes(ax, _range_ylim(view.bars), total_bars)
     _draw_round_counter(ax, round_num, total_rounds)
 
-    _reserve_button_space(fig, ax)
     _install_buttons(fig)
+    fig.canvas.draw_idle()
 
     return fig, ax
 
@@ -370,6 +360,7 @@ def play_round(
     key_getter=_wait_for_key,
     advance_getter=_wait_for_any_key,
     on_round=lambda result: None,
+    fig=None,
 ) -> RoundResult | None:
     """Play one round: render, wait for a guess, reveal. Returns None if the
     player quit instead of answering.
@@ -380,10 +371,14 @@ def play_round(
     `key_getter`/`advance_getter` default to the real blocking waiters on a
     matplotlib figure; tests inject fakes so the loop logic can be exercised
     without a live GUI event loop.
+
+    `fig` is the session's shared figure; the round draws into it and leaves
+    it open. Without one, the round gets its own figure and closes it.
     """
     view, answer = generate_puzzle(corpus, rng, horizon_bars=horizon_bars)
 
-    fig, ax = render(view, round_num, total_rounds)
+    owns_fig = fig is None
+    fig, ax = render(view, round_num, total_rounds, fig=fig)
     fig.show()
     shown_at = datetime.now(timezone.utc)
 
@@ -391,7 +386,8 @@ def play_round(
     answered_at = datetime.now(timezone.utc)
 
     if key not in _KEY_TO_GUESS:
-        plt.close(fig)
+        if owns_fig:
+            plt.close(fig)
         return None
 
     guess = _KEY_TO_GUESS[key]
@@ -424,7 +420,8 @@ def play_round(
 
     reveal(fig, ax, view, answer, correct)
     advance_getter(fig)
-    plt.close(fig)
+    if owns_fig:
+        plt.close(fig)
 
     return result
 
@@ -447,15 +444,19 @@ def run_session(
     rng = random.Random(seed) if seed is not None else random.Random()
     session_id = session_id or str(uuid.uuid4())
 
+    fig = new_figure()  # one window for the whole session
     results = []
-    for round_num in range(1, rounds + 1):
-        result = play_round(
-            corpus, rng, session_id, round_num=round_num, total_rounds=rounds, horizon_bars=horizon_bars,
-            key_getter=key_getter, advance_getter=advance_getter, on_round=on_round,
-        )
-        if result is None:
-            break
-        results.append(result)
+    try:
+        for round_num in range(1, rounds + 1):
+            result = play_round(
+                corpus, rng, session_id, round_num=round_num, total_rounds=rounds, horizon_bars=horizon_bars,
+                key_getter=key_getter, advance_getter=advance_getter, on_round=on_round, fig=fig,
+            )
+            if result is None:
+                break
+            results.append(result)
+    finally:
+        plt.close(fig)
 
     return results
 

@@ -14,7 +14,7 @@ matplotlib.use("Agg")  # headless: no window, no real event loop
 import pytest
 
 from intuition_trading import game
-from intuition_trading.puzzles import Corpus, load_corpus
+from intuition_trading.puzzles import Corpus, generate_puzzle, load_corpus
 
 SEED = 20260824
 
@@ -82,6 +82,40 @@ def test_run_session_stops_early_on_quit(corpus: Corpus):
 
     assert len(results) == 2  # the quit round itself is not logged
     assert calls["n"] == 3
+
+
+def test_run_session_reuses_one_window(corpus: Corpus):
+    """Every round draws into the same figure, so the window stays put
+    instead of a new one popping up each round."""
+    figs = []
+
+    def recording_key(fig, valid_keys):
+        figs.append(fig)
+        return "up"
+
+    game.run_session(
+        corpus, rounds=4, seed=SEED, key_getter=recording_key, advance_getter=_noop_advance,
+    )
+    assert len(figs) == 4
+    assert all(f is figs[0] for f in figs)
+
+
+def test_rerender_clears_the_previous_reveal(corpus: Corpus):
+    """Reusing the figure must not carry the last round's horizon candles,
+    result mark or widened y-limits into the next question."""
+    rng = random.Random(SEED)
+    view1, answer1 = generate_puzzle(corpus, rng)
+    fig, ax1 = game.render(view1)
+    game.reveal(fig, ax1, view1, answer1, correct=True)
+
+    view2, _ = generate_puzzle(corpus, rng)
+    fig2, ax2 = game.render(view2, fig=fig)
+
+    assert fig2 is fig
+    assert ax1 not in fig.axes
+    assert len(fig.axes) == 4  # chart + three buttons
+    assert ax2.get_ylim() == pytest.approx(game._range_ylim(view2.bars))
+    assert not ax2.lines  # no reveal-only reference lines or result mark
 
 
 def test_on_round_fires_before_reveal(corpus: Corpus):
