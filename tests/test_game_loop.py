@@ -100,6 +100,26 @@ def test_run_session_reuses_one_window(corpus: Corpus):
     assert all(f is figs[0] for f in figs)
 
 
+def test_run_session_plays_in_a_given_window_and_leaves_it_open(corpus: Corpus):
+    """The start screen's window is handed to the session; the session must
+    play in it and leave closing it to the caller."""
+    import matplotlib.pyplot as plt
+
+    fig = game.new_figure()
+    seen = []
+
+    def recording_key(f, valid_keys):
+        seen.append(f)
+        return "up"
+
+    game.run_session(
+        corpus, rounds=2, seed=SEED, key_getter=recording_key, advance_getter=_noop_advance, fig=fig,
+    )
+    assert all(f is fig for f in seen)
+    assert plt.fignum_exists(fig.number)
+    plt.close(fig)
+
+
 def test_rerender_clears_the_previous_reveal(corpus: Corpus):
     """Reusing the figure must not carry the last round's horizon candles,
     result mark or widened y-limits into the next question."""

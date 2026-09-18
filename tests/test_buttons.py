@@ -132,3 +132,51 @@ def test_wait_for_any_key_advances_on_the_next_button(corpus: Corpus):
     t.join(timeout=5)
 
     assert fig._clicked_key == "next"
+
+
+def _real_click(fig, button):
+    """A genuine press+release at the button's centre, routed through the
+    canvas like a real mouse click (unlike _fire, which skips the widget's
+    own mouse handling)."""
+    from matplotlib.backend_bases import MouseButton, MouseEvent
+
+    fig.canvas.draw()
+    x, y = button.ax.transAxes.transform((0.5, 0.5))
+    for name in ("button_press_event", "button_release_event"):
+        MouseEvent(name, fig.canvas, x, y, button=MouseButton.LEFT)._process()
+
+
+def test_clicking_after_rerender_hits_only_the_new_buttons(corpus: Corpus):
+    """Rounds reuse one figure with the buttons in the same place. The old
+    round's buttons must stop listening, or a click reaches them too and
+    they fight the new ones for the mouse grab ("Another Axes already
+    grabs mouse input")."""
+    rng = random.Random(SEED)
+    view1, _ = generate_puzzle(corpus, rng)
+    fig, _ax = game.render(view1)
+    old_buttons = fig._buttons
+
+    view2, _ = generate_puzzle(corpus, rng)
+    game.render(view2, fig=fig)
+
+    old_hits = []
+    for b in old_buttons:
+        b.on_clicked(lambda _e: old_hits.append(1))
+
+    _real_click(fig, fig._buttons[1])  # Up -- raised RuntimeError before the fix
+    assert fig._clicked_key == "up"
+    assert fig.canvas.mouse_grabber is None
+    assert old_hits == []
+
+
+def test_start_screen_buttons_stop_listening_once_the_game_starts(corpus: Corpus):
+    from intuition_trading import launcher
+
+    fig = game.new_figure()
+    screen = launcher.Launcher(fig)
+    rng = random.Random(SEED)
+    view, _ = generate_puzzle(corpus, rng)
+    game.render(view, fig=fig)
+
+    _real_click(fig, screen.start_button)  # its old spot; must not start anything
+    assert not screen.started

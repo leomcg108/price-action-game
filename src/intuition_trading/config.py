@@ -5,6 +5,11 @@ HORIZON_OPTIONS = (10, 20, 30)  # minutes; selectable per session via --horizon
 HORIZON_BARS = HORIZON_OPTIONS[0]  # default prediction horizon
 SESSION_ROUNDS = 20  # overridable via CLI
 
+# Start screen (shown when the game is launched without --rounds/--horizon)
+ROUND_OPTIONS = (10, 20, 30, 50)  # session lengths offered as buttons
+LAUNCHER_ROUNDS = 10  # preselected, so pressing Start straight away uses these
+LAUNCHER_HORIZON = 30  # one of HORIZON_OPTIONS
+
 MIN_BARS_PER_DAY = 385  # of 390; drops gappy days and half-days
 
 REVEAL_IDENTITY = False  # see spec: debugging only, do not add a mid-session flip

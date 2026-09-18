@@ -109,6 +109,21 @@ def new_figure():
     return mpf.figure(style=_STYLE, figsize=_FIGSIZE)
 
 
+def clear_figure(fig) -> None:
+    """Wipe `fig` for the next screen, widgets included.
+
+    fig.clf() removes a Button's axes but not the mouse handlers the Button
+    registered on the canvas, so without disconnecting them every old button
+    keeps answering clicks at its old position -- and, overlapping the new
+    ones, fights them for the mouse grab ("Another Axes already grabs mouse
+    input"). Widgets opt in by being added to fig._widgets.
+    """
+    for widget in getattr(fig, "_widgets", []):
+        widget.disconnect_events()
+    fig._widgets = []
+    fig.clf()
+
+
 def _draw_arrow(bax, direction: str, color: str) -> None:
     """A thick, colour-coordinated arrow -- the button's only marking, drawn
     on the button's own axes rather than relying on font glyphs/weight."""
@@ -173,6 +188,7 @@ def _install_buttons(fig) -> None:
         buttons.append(button)
 
     fig._buttons = buttons  # keep references alive -- matplotlib drops unreferenced widgets
+    fig._widgets = getattr(fig, "_widgets", []) + buttons  # so clear_figure can disconnect them
 
 
 def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1, fig=None):
@@ -193,7 +209,7 @@ def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1, fig=None
     if fig is None:
         fig = new_figure()
     else:
-        fig.clf()
+        clear_figure(fig)
 
     ax = fig.add_axes(_CHART_RECT)
     mpf.plot(frame, type="candle", style=_STYLE, ax=ax, volume=False, datetime_format=" ", xrotation=0)
@@ -435,16 +451,23 @@ def run_session(
     on_round=lambda result: None,
     key_getter=_wait_for_key,
     advance_getter=_wait_for_any_key,
+    fig=None,
 ) -> list[RoundResult]:
     """Play a fixed-length session. Stops early if the player quits.
 
     `horizon_bars` (one of config.HORIZON_OPTIONS) applies to every round in
     the session -- it's a session setting, not a per-round one.
+
+    `fig` is the window to play in (e.g. the one the start screen was shown
+    in); the caller then owns closing it. Without one, the session opens
+    its own window and closes it at the end.
     """
     rng = random.Random(seed) if seed is not None else random.Random()
     session_id = session_id or str(uuid.uuid4())
 
-    fig = new_figure()  # one window for the whole session
+    owns_fig = fig is None
+    if owns_fig:
+        fig = new_figure()  # one window for the whole session
     results = []
     try:
         for round_num in range(1, rounds + 1):
@@ -456,7 +479,8 @@ def run_session(
                 break
             results.append(result)
     finally:
-        plt.close(fig)
+        if owns_fig:
+            plt.close(fig)
 
     return results
 
@@ -464,24 +488,44 @@ def run_session(
 if __name__ == "__main__":
     import argparse
 
+    import sys
+
     from intuition_trading import stats
+    from intuition_trading.launcher import choose_settings
     from intuition_trading.puzzles import load_corpus
 
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rounds", type=int, default=config.SESSION_ROUNDS)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog="With neither --rounds nor --horizon, a start screen lets you pick them with buttons.",
+    )
+    parser.add_argument("--rounds", type=int, default=None, help=f"default {config.SESSION_ROUNDS}")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
-        "--horizon", type=int, choices=config.HORIZON_OPTIONS, default=config.HORIZON_BARS,
-        help="prediction horizon in minutes",
+        "--horizon", type=int, choices=config.HORIZON_OPTIONS, default=None,
+        help=f"prediction horizon in minutes (default {config.HORIZON_BARS})",
     )
     args = parser.parse_args()
 
     corpus = load_corpus()
+    fig = new_figure()
+    fig.show()
+
+    if args.rounds is None and args.horizon is None:
+        settings = choose_settings(fig)
+        if settings is None:  # window closed or q pressed before starting
+            plt.close(fig)
+            sys.exit(0)
+        rounds, horizon = settings
+    else:
+        rounds = args.rounds if args.rounds is not None else config.SESSION_ROUNDS
+        horizon = args.horizon if args.horizon is not None else config.HORIZON_BARS
+
     session_id = str(uuid.uuid4())
     run_session(
-        corpus, rounds=args.rounds, seed=args.seed, session_id=session_id,
-        horizon_bars=args.horizon, on_round=log_round,
+        corpus, rounds=rounds, seed=args.seed, session_id=session_id,
+        horizon_bars=horizon, on_round=log_round, fig=fig,
     )
+    plt.close(fig)
 
     print()
     stats.print_summary(session_id)
