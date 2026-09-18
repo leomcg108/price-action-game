@@ -56,6 +56,12 @@ python -m intuition_trading.fetch
 python -m intuition_trading.game
 ```
 
+The game opens on a start screen: pick the number of rounds and the prediction
+horizon with the buttons, then press **Start** (or Enter). Pressing Start
+straight away plays 10 rounds at a 30-minute horizon. Passing `--rounds` or
+`--horizon` on the command line skips the start screen
+(`python -m intuition_trading.game --rounds 20 --horizon 10`).
+
 Arrow keys: **↑** predicts up, **↓** predicts down. **q** quits and prints your
 results so far.
 
@@ -264,8 +270,11 @@ All in `config.py`:
 | Setting | Default | Notes |
 |---------|---------|-------|
 | `LOOKBACK_BARS` | `60` | Visible history, one hour |
-| `HORIZON_OPTIONS` | `(10, 20, 30)` | Selectable prediction horizons, in minutes, via `--horizon` |
-| `SESSION_ROUNDS` | `20` | Overridable per session via CLI |
+| `HORIZON_OPTIONS` | `(10, 20, 30)` | Selectable prediction horizons, in minutes, on the start screen or via `--horizon` |
+| `SESSION_ROUNDS` | `20` | Session length when using the CLI flags; overridable via `--rounds` |
+| `ROUND_OPTIONS` | `(10, 20, 30, 50)` | Session lengths offered on the start screen |
+| `LAUNCHER_ROUNDS` | `10` | Start screen's preselected rounds |
+| `LAUNCHER_HORIZON` | `30` | Start screen's preselected horizon |
 | `MIN_BARS_PER_DAY` | `385` | Of 390; drops gappy days and half-days |
 | `REVEAL_IDENTITY` | `False` | Show ticker and date after the reveal |
 | `UNIVERSE` | 22 symbols | Default/backup set — see [Universe](#universe) |
@@ -337,6 +346,7 @@ price-action-game/
 │   ├── fetch.py      # corpus builder — run on a schedule
 │   ├── puzzles.py    # corpus loading, features, puzzle generation
 │   ├── game.py       # session loop, chart, input, logging
+│   ├── launcher.py   # start screen: rounds/horizon buttons
 │   └── stats.py      # binomial tail, Wilson interval, summary
 ├── tests/
 │   ├── test_no_leakage.py
