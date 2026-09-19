@@ -115,9 +115,8 @@ class Launcher:
 
     def __init__(self, fig, rounds: int = config.LAUNCHER_ROUNDS, horizon: int = config.LAUNCHER_HORIZON):
         self.fig = fig
-        # held on to: closing the window (which matplotlib's own "q" shortcut
-        # also does) replaces fig.canvas, and the loop must be stopped on the
-        # canvas it's actually blocking on
+        # held on to: closing the window replaces fig.canvas, and the loop
+        # must be stopped on the canvas it's actually blocking on
         self.canvas = fig.canvas
         self.rounds = rounds
         self.horizon = horizon

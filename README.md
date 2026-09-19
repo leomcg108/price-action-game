@@ -62,8 +62,11 @@ straight away plays 10 rounds at a 30-minute horizon. Passing `--rounds` or
 `--horizon` on the command line skips the start screen
 (`python -m intuition_trading.game --rounds 20 --horizon 10`).
 
-Arrow keys: **↑** predicts up, **↓** predicts down. **q** quits and prints your
-results so far.
+Arrow keys: **↑** predicts up, **↓** predicts down. **q** quits early.
+
+When the session ends (or you quit), the window shows your results, the same
+summary that's printed to the terminal. **End** (or Enter / **q**) closes the
+window.
 
 Python 3.11+. Dependencies are `yfinance`, `pandas`, `pyarrow`, `numpy`,
 `matplotlib`, and `mplfinance` — nothing else.
@@ -348,6 +351,7 @@ price-action-game/
 │   ├── puzzles.py    # corpus loading, features, puzzle generation
 │   ├── game.py       # session loop, chart, input, logging
 │   ├── launcher.py   # start screen: rounds/horizon buttons
+│   ├── results.py    # results screen: summary and End button
 │   └── stats.py      # binomial tail, Wilson interval, summary
 ├── tests/
 │   ├── test_no_leakage.py

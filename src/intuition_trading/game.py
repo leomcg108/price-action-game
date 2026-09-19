@@ -107,7 +107,17 @@ _CHART_RECT = [0.03, 0.27, 0.94, 0.70]
 def new_figure():
     """The one figure a session draws every round into. Reusing it keeps the
     window where the player put it, instead of a new window per round."""
-    return mpf.figure(style=_STYLE, figsize=_FIGSIZE)
+    fig = mpf.figure(style=_STYLE, figsize=_FIGSIZE)
+    # Drop matplotlib's built-in key shortcuts for this window. "q" is the
+    # game's own quit key (ending a session early, then leaving the results
+    # screen), but by default it also closes the window, taking the results
+    # screen with it; others ("g", "l", "k") would restyle the chart.
+    # Editing rcParams["keymap.quit"] doesn't stick: mplfinance re-applies
+    # its style, resetting rcParams, whenever an axes is added.
+    manager = fig.canvas.manager
+    if manager is not None and getattr(manager, "key_press_handler_id", None) is not None:
+        fig.canvas.mpl_disconnect(manager.key_press_handler_id)
+    return fig
 
 
 def clear_figure(fig) -> None:
@@ -494,6 +504,7 @@ if __name__ == "__main__":
     from intuition_trading import stats
     from intuition_trading.launcher import choose_settings
     from intuition_trading.puzzles import load_corpus
+    from intuition_trading.results import show_results
 
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -526,7 +537,13 @@ if __name__ == "__main__":
         corpus, rounds=rounds, seed=args.seed, session_id=session_id,
         horizon_bars=horizon, on_round=log_round, fig=fig,
     )
-    plt.close(fig)
 
+    summary = stats.summary(session_id)
     print()
-    stats.print_summary(session_id)
+    print(summary)  # also in the terminal, so it outlives the window
+
+    if not plt.fignum_exists(fig.number):  # window closed mid-session
+        fig = new_figure()
+        fig.show()
+    show_results(fig, summary)
+    plt.close(fig)

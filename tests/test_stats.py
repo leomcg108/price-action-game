@@ -67,6 +67,15 @@ def test_format_summary_matches_spec_shape():
     assert lines[4] == "           95% CI [46.1, 60.5] — includes 50%."
 
 
+def test_format_summary_keeps_a_space_before_long_fractions():
+    """A 7-character fraction like "138/296" used to butt straight against
+    its "(pct%)"; the column now widens, and both percentages stay aligned."""
+    lines = stats.format_summary(7, 10, 138, 296).split("\n")
+    assert lines[0] == "Session:   7/10    (70.0%)"
+    assert lines[3] == "Lifetime:  138/296 (46.6%)"
+    assert lines[0].index("(") == lines[3].index("(")
+
+
 def test_format_summary_reports_excludes_50_when_interval_is_clear():
     text = stats.format_summary(session_k=18, session_n=20, lifetime_k=170, lifetime_n=180)
     assert text.endswith("does not include 50%.")

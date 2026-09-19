@@ -54,7 +54,7 @@ def _counts(rows: list[dict]) -> tuple[int, int]:
 # --- Summary -------------------------------------------------------------
 
 _LABEL_WIDTH = 11  # column the fraction starts at, for both labels
-_FRACTION_WIDTH = 7  # column the "(pct%)" starts at, relative to the fraction
+_FRACTION_WIDTH = 7  # minimum column the "(pct%)" starts at, relative to the fraction
 
 
 def format_summary(session_k: int, session_n: int, lifetime_k: int, lifetime_n: int) -> str:
@@ -70,22 +70,26 @@ def format_summary(session_k: int, session_n: int, lifetime_k: int, lifetime_n: 
     indent = " " * _LABEL_WIDTH
     session_fraction = f"{session_k}/{session_n}"
     lifetime_fraction = f"{lifetime_k}/{lifetime_n}"
+    # widen past the minimum when a fraction needs it (e.g. "138/296"), so
+    # there's always a space before "(" and both percentages stay aligned
+    fraction_width = max(_FRACTION_WIDTH, len(session_fraction) + 1, len(lifetime_fraction) + 1)
 
     lines = [
-        f"{'Session:':<{_LABEL_WIDTH}}{session_fraction:<{_FRACTION_WIDTH}}({session_pct:.1f}%)",
+        f"{'Session:':<{_LABEL_WIDTH}}{session_fraction:<{fraction_width}}({session_pct:.1f}%)",
         f"{indent}A coin flip scores this well or better {tail_pct:.1f}% of the time.",
         "",
-        f"{'Lifetime:':<{_LABEL_WIDTH}}{lifetime_fraction:<{_FRACTION_WIDTH}}({lifetime_pct:.1f}%)",
+        f"{'Lifetime:':<{_LABEL_WIDTH}}{lifetime_fraction:<{fraction_width}}({lifetime_pct:.1f}%)",
         f"{indent}95% CI [{lo_pct:.1f}, {hi_pct:.1f}] — {verdict}",
     ]
     return "\n".join(lines)
 
 
-def print_summary(session_id: str, path: Path = config.ROUNDS_CSV) -> None:
-    """Read the full CSV and print the session + lifetime summary.
+def summary(session_id: str, path: Path = config.ROUNDS_CSV) -> str:
+    """Read the full CSV and build the session + lifetime summary.
 
     Neither line is ever shown without its chance reference (non-negotiable
-    #3), and neither is softened, congratulated, or annotated.
+    #3), and neither is softened, congratulated, or annotated. The terminal
+    and the results screen both show exactly this text.
     """
     rows = _read_rounds(path)
     session_rows = [r for r in rows if r["session_id"] == session_id]
@@ -93,4 +97,8 @@ def print_summary(session_id: str, path: Path = config.ROUNDS_CSV) -> None:
     session_k, session_n = _counts(session_rows)
     lifetime_k, lifetime_n = _counts(rows)
 
-    print(format_summary(session_k, session_n, lifetime_k, lifetime_n))
+    return format_summary(session_k, session_n, lifetime_k, lifetime_n)
+
+
+def print_summary(session_id: str, path: Path = config.ROUNDS_CSV) -> None:
+    print(summary(session_id, path))
