@@ -145,9 +145,10 @@ padding is fixed and derived from the lookback range alone.
 horizon from the first frame, leaving the horizon's width as empty space. Nothing
 about the layout shifts when the answer appears.
 
-**Prices are normalised to percent from the anchor.** The anchor sits at exactly
-0.0 and the axis reads in percent, so the absolute price level, a strong tell
-about which stock you're looking at, is gone.
+**Prices are normalised to percent from the anchor, and the y-axis is
+unlabelled.** The anchor sits at exactly 0.0 and the chart shows no price scale
+at all, so the absolute price level, a strong tell about which stock you're
+looking at, is gone.
 
 **No ticker, no date, no clock time.** The x-axis is labelled by bar index. By
 default the identity is never shown, not even after the reveal. It's recorded in

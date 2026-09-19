@@ -15,7 +15,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import mplfinance as mpf
 import pandas as pd
-from matplotlib.ticker import FuncFormatter
 from matplotlib.widgets import Button
 
 from intuition_trading import config
@@ -80,8 +79,9 @@ def _style_axes(ax, ylim: tuple[float, float], total_bars: int) -> None:
     ax.set_xticks(ticks)
     ax.set_xticklabels([str(t) for t in ticks])
     ax.set_xlabel("bar index")
-    ax.set_ylabel("% from anchor")
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _pos: f"{v:.2f}"))
+    # no y-axis markings at all -- no ticks, numbers or title
+    ax.set_yticks([])
+    ax.set_ylabel("")
     ax.set_title("")
     ax.grid(False)
 
@@ -99,8 +99,9 @@ def _draw_round_counter(ax, round_num: int, total_rounds: int) -> None:
 
 _FIGSIZE = (8.0, 5.75)  # mplfinance's default figure size
 # figure-fraction [left, bottom, width, height] of the chart axes, leaving
-# room at the bottom for tick labels and the buttons
-_CHART_RECT = [0.108, 0.27, 0.868, 0.70]
+# room at the bottom for tick labels and the buttons. Centred, since the
+# y-axis has no labels needing space on either side.
+_CHART_RECT = [0.03, 0.27, 0.94, 0.70]
 
 
 def new_figure():

@@ -81,3 +81,19 @@ def test_session_logs_the_chosen_horizon(corpus: Corpus, horizon_bars: int, tmp_
     )
     assert len(results) == 2
     assert all(r.horizon_bars == horizon_bars for r in results)
+
+
+@pytest.mark.parametrize("horizon_bars", config.HORIZON_OPTIONS)
+def test_y_axis_has_no_markings(corpus: Corpus, horizon_bars: int):
+    """No y-axis ticks, numbers or title -- on the question or the reveal,
+    which replots onto the axes and could bring mplfinance's back."""
+    rng = random.Random(SEED)
+    view, answer = generate_puzzle(corpus, rng, horizon_bars=horizon_bars)
+    fig, ax = game.render(view)
+    for stage in ("question", "reveal"):
+        if stage == "reveal":
+            game.reveal(fig, ax, view, answer, correct=True)
+        fig.canvas.draw()
+        assert list(ax.get_yticks()) == [], stage
+        assert all(not t.get_text() for t in ax.get_yticklabels()), stage
+        assert ax.get_ylabel() == "", stage
