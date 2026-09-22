@@ -12,9 +12,11 @@ project.
 ```
 Session:   12/20  (60.0%)
            A coin flip scores this well or better 25.2% of the time.
+           Guesses: 55% (11/20) up, 45% (9/20) down.
 
 Lifetime:  96/180 (53.3%)
            95% CI [46.0, 60.5] — includes 50%.
+           Guesses: 55% (99/180) up, 45% (81/180) down.
 ```
 
 ---
@@ -177,10 +179,15 @@ At the end of a session you get something like:
 ```
 Session:   12/20  (60.0%)
            A coin flip scores this well or better 25.2% of the time.
+           Guesses: 55% (11/20) up, 45% (9/20) down.
 
 Lifetime:  96/180 (53.3%)
            95% CI [46.0, 60.5] — includes 50%.
+           Guesses: 55% (99/180) up, 45% (81/180) down.
 ```
+
+The same summary appears on the results screen in the game window, with an
+**End** button that closes it.
 
 ### The coin line
 
@@ -216,6 +223,14 @@ edge takes far more rounds than feels reasonable:
 Which is why the lifetime line reports a Wilson interval and states in words
 whether it contains 50%. While it does, the honest reading is that no edge has
 been demonstrated — not that you have none, but that this hasn't shown one.
+
+### The guess lines
+
+These describe you, not the market. Predicting direction from bare price action
+is one thing; quietly answering "up" four times in five is another, and a hit
+rate alone hides it. A one-sided split isn't wrong in itself — intraday drift is
+real — but it does mean much of what's being measured is a habit rather than a
+read, and it's worth knowing which.
 
 ### Why 53% isn't a business
 

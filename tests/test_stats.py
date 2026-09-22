@@ -57,37 +57,57 @@ def test_wilson_interval_bounds_and_symmetry():
 
 
 def test_format_summary_matches_spec_shape():
-    text = stats.format_summary(session_k=12, session_n=20, lifetime_k=96, lifetime_n=180)
+    text = stats.format_summary(
+        session_k=12, session_n=20, lifetime_k=96, lifetime_n=180, session_up=11, lifetime_up=99
+    )
     lines = text.split("\n")
 
     assert lines[0] == "Session:   12/20  (60.0%)"
     assert lines[1] == "           A coin flip scores this well or better 25.2% of the time."
-    assert lines[2] == ""
-    assert lines[3] == "Lifetime:  96/180 (53.3%)"
-    assert lines[4] == "           95% CI [46.1, 60.5] — includes 50%."
+    assert lines[2] == "           Guesses: 55% (11/20) up, 45% (9/20) down."
+    assert lines[3] == ""
+    assert lines[4] == "Lifetime:  96/180 (53.3%)"
+    assert lines[5] == "           95% CI [46.1, 60.5] — includes 50%."
+    assert lines[6] == "           Guesses: 55% (99/180) up, 45% (81/180) down."
+
+
+def test_guess_split_shows_a_one_sided_session():
+    """The point of the line: always picking up is visible at a glance,
+    over the session and over the whole log."""
+    lines = stats.format_summary(6, 10, 96, 180, session_up=10, lifetime_up=180).split("\n")
+    assert lines[2] == "           Guesses: 100% (10/10) up, 0% (0/10) down."
+    assert lines[6] == "           Guesses: 100% (180/180) up, 0% (0/180) down."
+
+
+def test_guess_split_survives_an_empty_log():
+    """Quitting before answering anything, on a first-ever session, must
+    not divide by zero."""
+    lines = stats.format_summary(0, 0, 0, 0, session_up=0, lifetime_up=0).split("\n")
+    assert lines[2] == "           Guesses: 0% (0/0) up, 0% (0/0) down."
+    assert lines[6] == "           Guesses: 0% (0/0) up, 0% (0/0) down."
 
 
 def test_format_summary_keeps_a_space_before_long_fractions():
     """A 7-character fraction like "138/296" used to butt straight against
     its "(pct%)"; the column now widens, and both percentages stay aligned."""
-    lines = stats.format_summary(7, 10, 138, 296).split("\n")
+    lines = stats.format_summary(7, 10, 138, 296, session_up=6).split("\n")
     assert lines[0] == "Session:   7/10    (70.0%)"
-    assert lines[3] == "Lifetime:  138/296 (46.6%)"
-    assert lines[0].index("(") == lines[3].index("(")
+    assert lines[4] == "Lifetime:  138/296 (46.6%)"
+    assert lines[0].index("(") == lines[4].index("(")
 
 
 def test_format_summary_reports_excludes_50_when_interval_is_clear():
     text = stats.format_summary(session_k=18, session_n=20, lifetime_k=170, lifetime_n=180)
-    assert text.endswith("does not include 50%.")
+    assert text.split("\n")[5].endswith("does not include 50%.")
 
 
 def test_format_summary_never_shows_a_bare_percentage_line():
     """Non-negotiable #3: every result line carries its reference on the
     very next line."""
-    text = stats.format_summary(12, 20, 96, 180)
+    text = stats.format_summary(12, 20, 96, 180, session_up=11)
     lines = text.split("\n")
     assert "coin flip" in lines[1]
-    assert "95% CI" in lines[4]
+    assert "95% CI" in lines[5]
 
 
 def _fixed_key(key: str):
@@ -129,5 +149,9 @@ def test_print_summary_reads_session_and_lifetime_from_csv(tmp_path, capsys):
     lines = out.split("\n")
     assert lines[0].startswith("Session:")
     assert "/3 " in lines[0]  # current session only: 3 rounds
-    assert lines[3].startswith("Lifetime:")
-    assert "/7 " in lines[3]  # old (4) + current (3) = 7 rounds
+    # every round above was answered "up", and the split is read back from
+    # the log's guess column
+    assert lines[2] == "           Guesses: 100% (3/3) up, 0% (0/3) down."
+    assert lines[4].startswith("Lifetime:")
+    assert "/7 " in lines[4]  # old (4) + current (3) = 7 rounds
+    assert lines[6] == "           Guesses: 100% (7/7) up, 0% (0/7) down."
