@@ -64,7 +64,15 @@ straight away plays 10 rounds at a 30-minute horizon. Passing `--rounds` or
 `--horizon` on the command line skips the start screen
 (`python -m intuition_trading.game --rounds 20 --horizon 10`).
 
-Arrow keys: **↑** predicts up, **↓** predicts down. **q** quits early.
+![Start screen: the INTUITION TRADING banner, buttons for rounds and horizon, and a Start button](docs/images/start-screen.png)
+
+Each round shows an hour of candles, with the horizon's width left empty to the
+right. There's no price scale, ticker or time of day.
+
+![A round in progress: 60 candles with empty space to their right, and Down, Up and Next buttons below](docs/images/guessing.png)
+
+Arrow keys: **↑** predicts up, **↓** predicts down. **q** quits early. The
+buttons under the chart do the same with the mouse.
 
 When the session ends (or you quit), the window shows your results, the same
 summary that's printed to the terminal. **End** (or Enter / **q**) closes the
