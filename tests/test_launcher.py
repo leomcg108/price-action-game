@@ -42,6 +42,7 @@ def screen():
 def test_launcher_defaults_are_offered_options():
     assert config.LAUNCHER_ROUNDS in config.ROUND_OPTIONS
     assert config.LAUNCHER_HORIZON in config.HORIZON_OPTIONS
+    assert config.LAUNCHER_TIMER in config.TIMER_OPTIONS
 
 
 @pytest.mark.parametrize("word", ["INTUITION", "TRADING"])
@@ -54,24 +55,31 @@ def test_banner_rows_line_up(word):
 def test_one_button_per_option(screen):
     assert list(screen.round_buttons) == list(config.ROUND_OPTIONS)
     assert list(screen.horizon_buttons) == list(config.HORIZON_OPTIONS)
+    assert list(screen.timer_buttons) == list(config.TIMER_OPTIONS)
+
+
+def test_timer_buttons_read_off_then_seconds(screen):
+    labels = [b.label.get_text() for b in screen.timer_buttons.values()]
+    assert labels == ["Off"] + [f"{s} s" for s in config.TIMER_OPTIONS if s]
 
 
 def test_start_straight_away_uses_the_defaults(screen):
     t = _in_background(screen.fig, lambda: _fire(screen.start_button))
-    assert screen.wait() == (config.LAUNCHER_ROUNDS, config.LAUNCHER_HORIZON)
+    assert screen.wait() == (config.LAUNCHER_ROUNDS, config.LAUNCHER_HORIZON, config.LAUNCHER_TIMER)
     t.join(timeout=5)
 
 
 def test_selections_are_passed_through(screen):
-    rounds, horizon = config.ROUND_OPTIONS[-1], config.HORIZON_OPTIONS[0]
+    rounds, horizon, timer = config.ROUND_OPTIONS[-1], config.HORIZON_OPTIONS[0], config.TIMER_OPTIONS[-1]
 
     def pick_then_start():
         _fire(screen.round_buttons[rounds])
         _fire(screen.horizon_buttons[horizon])
+        _fire(screen.timer_buttons[timer])
         _fire(screen.start_button)
 
     t = _in_background(screen.fig, pick_then_start)
-    assert screen.wait() == (rounds, horizon)
+    assert screen.wait() == (rounds, horizon, timer)
     t.join(timeout=5)
 
 

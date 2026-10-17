@@ -37,11 +37,26 @@ def wilson_interval(k: int, n: int, z: float = _Z_95) -> tuple[float, float]:
 # --- Reading the log ---------------------------------------------------
 
 
+# Columns added after the original schema, in order. They're always written
+# last, so a log whose header predates them stays valid without being
+# rewritten (the log is never rewritten): newer rows simply carry them as
+# trailing fields the old header doesn't name, mapped back here by position.
+# Rows older than a column don't have it at all.
+ADDED_FIELDS = ("time_limit_s", "timed_out")
+
+_UNNAMED = "_unnamed"
+
+
 def _read_rounds(path: Path = config.ROUNDS_CSV) -> list[dict]:
     if not path.exists():
         return []
     with open(path, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+        reader = csv.DictReader(f, restkey=_UNNAMED)
+        rows = list(reader)
+    unnamed = [name for name in ADDED_FIELDS if name not in (reader.fieldnames or [])]
+    for row in rows:
+        row.update(zip(unnamed, row.pop(_UNNAMED, [])))
+    return rows
 
 
 def _counts(rows: list[dict]) -> tuple[int, int]:
@@ -51,9 +66,19 @@ def _counts(rows: list[dict]) -> tuple[int, int]:
     return k, n
 
 
+def _timed_out(row: dict) -> bool:
+    return row.get("timed_out") == "True"  # absent on rows logged before the timer existed
+
+
+def _timeouts(rows: list[dict]) -> int:
+    """How many of the rounds ran out of time and were guessed at random."""
+    return sum(1 for r in rows if _timed_out(r))
+
+
 def _ups(rows: list[dict]) -> int:
-    """How many of the rounds were guessed up."""
-    return sum(1 for r in rows if r["guess"] == "1")
+    """How many of the player's own guesses were up -- random guesses made
+    on a timeout aren't the player's, so they're left out."""
+    return sum(1 for r in rows if r["guess"] == "1" and not _timed_out(r))
 
 
 # --- Summary -------------------------------------------------------------
@@ -65,7 +90,12 @@ _FRACTION_WIDTH = 7  # minimum column the "(pct%)" starts at, relative to the fr
 def format_summary(
     session_k: int, session_n: int, lifetime_k: int, lifetime_n: int,
     session_up: int = 0, lifetime_up: int = 0,
+    session_timeouts: int = 0, lifetime_timeouts: int = 0,
 ) -> str:
+    """`*_up` count the player's own up guesses; `*_timeouts` count rounds
+    guessed at random when the clock ran out. Timed-out rounds are scored
+    like any other (a random guess keeps them a fair 50/50), but they're
+    not the player's choice, so the guess split leaves them out."""
     session_pct = 100 * session_k / session_n if session_n else 0.0
     tail_pct = binomial_upper_tail(session_k, session_n) * 100
 
@@ -92,14 +122,20 @@ def format_summary(
         down_pct = 100 * down / n if n else 0.0
         return f"Guesses: {up_pct:.0f}% ({up}/{n}) up, {down_pct:.0f}% ({down}/{n}) down."
 
+    # only when it happened: untimed play never shows the line
+    def timeout_lines(timeouts: int, n: int) -> list[str]:
+        return [f"{indent}Timed out: {timeouts}/{n}, guessed at random."] if timeouts else []
+
     lines = [
         f"{'Session:':<{_LABEL_WIDTH}}{session_fraction:<{fraction_width}}({session_pct:.1f}%)",
         f"{indent}A coin flip scores this well or better {tail_pct:.1f}% of the time.",
-        f"{indent}{guess_split(session_up, session_n)}",
+        f"{indent}{guess_split(session_up, session_n - session_timeouts)}",
+        *timeout_lines(session_timeouts, session_n),
         "",
         f"{'Lifetime:':<{_LABEL_WIDTH}}{lifetime_fraction:<{fraction_width}}({lifetime_pct:.1f}%)",
         f"{indent}95% CI [{lo_pct:.1f}, {hi_pct:.1f}] — {verdict}",
-        f"{indent}{guess_split(lifetime_up, lifetime_n)}",
+        f"{indent}{guess_split(lifetime_up, lifetime_n - lifetime_timeouts)}",
+        *timeout_lines(lifetime_timeouts, lifetime_n),
     ]
     return "\n".join(lines)
 
@@ -118,7 +154,8 @@ def summary(session_id: str, path: Path = config.ROUNDS_CSV) -> str:
     lifetime_k, lifetime_n = _counts(rows)
 
     return format_summary(
-        session_k, session_n, lifetime_k, lifetime_n, _ups(session_rows), _ups(rows)
+        session_k, session_n, lifetime_k, lifetime_n,
+        _ups(session_rows), _ups(rows), _timeouts(session_rows), _timeouts(rows),
     )
 
 

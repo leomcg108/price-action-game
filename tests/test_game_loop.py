@@ -170,3 +170,140 @@ def test_session_summary_never_prints_a_raw_score(corpus: Corpus, capsys):
     # session-level results; only the __main__ CLI prints a round count.
     captured = capsys.readouterr()
     assert captured.out == ""
+
+
+# --- Timer -----------------------------------------------------------------
+
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_untimed_rounds_never_accept_a_timeout(corpus: Corpus):
+    seen = []
+
+    def recording_key(fig, valid_keys):
+        seen.append(valid_keys)
+        return "up"
+
+    game.play_round(corpus, random.Random(SEED), "s", key_getter=recording_key, advance_getter=_noop_advance)
+    assert "timeout" not in seen[0]
+
+
+def test_timed_out_round_is_scored_on_the_random_guess(corpus: Corpus):
+    """Timeouts are scored like any other round, on the coin's guess --
+    which keeps every round a fair 50/50 for the coin line and CI."""
+    for coin in (1, -1):
+        result = game.play_round(
+            corpus, random.Random(SEED), "s", key_getter=_fixed_key("timeout"),
+            advance_getter=_noop_advance, time_limit=10, coin_flip=lambda: coin,
+        )
+        assert result.timed_out
+        assert result.time_limit_s == 10
+        assert result.guess == coin
+        assert result.correct == (coin == result.label)
+
+
+def test_answered_in_time_is_not_a_timeout(corpus: Corpus):
+    result = game.play_round(
+        corpus, random.Random(SEED), "s", key_getter=_fixed_key("down"),
+        advance_getter=_noop_advance, time_limit=10,
+    )
+    assert not result.timed_out
+    assert result.guess == -1
+
+
+def test_timeouts_dont_change_a_seeded_puzzle_sequence(corpus: Corpus):
+    """The random guess has its own randomness, so with a seed the session
+    shows the same puzzles whether or not the clock runs out."""
+    answered = game.run_session(
+        corpus, rounds=5, seed=SEED, key_getter=_fixed_key("up"), advance_getter=_noop_advance, time_limit=5,
+    )
+    timed_out = game.run_session(
+        corpus, rounds=5, seed=SEED, key_getter=_fixed_key("timeout"), advance_getter=_noop_advance,
+        time_limit=5,
+    )
+    assert [r.puzzle_id for r in answered] == [r.puzzle_id for r in timed_out]
+
+
+def test_countdown_empties_then_ends_the_wait():
+    fig = game.new_figure()
+    clock = _FakeClock()
+    countdown = game._Countdown(fig, 10, clock=clock)
+    full = countdown.bar.get_width()
+
+    clock.now = 5.0
+    countdown.tick()
+    assert countdown.bar.get_width() == pytest.approx(full / 2)
+    assert getattr(fig, "_clicked_key", None) != "timeout"
+
+    clock.now = 10.0
+    countdown.tick()
+    assert countdown.bar.get_width() == 0
+    assert fig._clicked_key == "timeout"
+
+
+def test_countdown_is_stopped_and_removed_once_the_guess_is_in(corpus: Corpus, monkeypatch):
+    """A countdown left running would fire during the reveal and cut its
+    wait short; its bar must not linger into the reveal either."""
+    made = []
+
+    class RecordingCountdown(game._Countdown):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.stopped = False
+            made.append(self)
+
+        def stop(self):
+            self.stopped = True
+            super().stop()
+
+    monkeypatch.setattr(game, "_Countdown", RecordingCountdown)
+    fig = game.new_figure()
+    game.play_round(
+        corpus, random.Random(SEED), "s", key_getter=_fixed_key("up"), advance_getter=_noop_advance,
+        time_limit=10, fig=fig,
+    )
+    [countdown] = made
+    assert countdown.stopped
+    assert countdown.bar not in fig.artists
+
+
+def test_reveal_notes_a_random_guess(corpus: Corpus):
+    view, answer = generate_puzzle(corpus, random.Random(SEED))
+    fig, ax = game.render(view)
+    game.reveal(fig, ax, view, answer, correct=True, timed_out=True, guess=1)
+    assert any("guessed up at random" in t.get_text() for t in ax.texts)
+
+    view, answer = generate_puzzle(corpus, random.Random(SEED))
+    fig, ax = game.render(view, fig=fig)
+    game.reveal(fig, ax, view, answer, correct=True)
+    assert not any("random" in t.get_text() for t in ax.texts)
+
+
+def test_a_running_out_countdown_ends_the_real_guess_wait():
+    """End to end through _wait_for_key: when the countdown expires during
+    the blocking wait, the wait returns "timeout"."""
+    import threading
+    import time
+
+    fig = game.new_figure()
+    clock = _FakeClock()
+    countdown = game._Countdown(fig, 5, clock=clock)
+
+    def expire_once_waiting():
+        deadline = time.monotonic() + 5
+        while not getattr(fig.canvas, "_looping", False) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        clock.now = 5.0
+        countdown.tick()  # what the matplotlib timer does on a live window
+
+    t = threading.Thread(target=expire_once_waiting)
+    t.start()
+    key = game._wait_for_key(fig, ("up", "down", "q", "timeout"))
+    t.join(timeout=5)
+    assert key == "timeout"

@@ -155,3 +155,46 @@ def test_print_summary_reads_session_and_lifetime_from_csv(tmp_path, capsys):
     assert lines[4].startswith("Lifetime:")
     assert "/7 " in lines[4]  # old (4) + current (3) = 7 rounds
     assert lines[6] == "           Guesses: 100% (7/7) up, 0% (0/7) down."
+
+
+def test_no_timeout_line_without_timeouts():
+    text = stats.format_summary(12, 20, 96, 180, session_up=11, lifetime_up=99)
+    assert "Timed out" not in text
+
+
+def test_timeouts_get_their_own_line_and_leave_the_guess_split():
+    """Timed-out rounds count in the score (fair 50/50 guesses), but the
+    random guesses aren't the player's, so the split covers the rest."""
+    lines = stats.format_summary(
+        12, 20, 96, 180, session_up=9, lifetime_up=90, session_timeouts=2, lifetime_timeouts=5,
+    ).split("\n")
+    assert lines[0] == "Session:   12/20  (60.0%)"
+    assert lines[2] == "           Guesses: 50% (9/18) up, 50% (9/18) down."
+    assert lines[3] == "           Timed out: 2/20, guessed at random."
+    assert lines[5] == "Lifetime:  96/180 (53.3%)"
+    assert lines[6].startswith("           95% CI")
+    assert lines[7] == "           Guesses: 51% (90/175) up, 49% (85/175) down."
+    assert lines[8] == "           Timed out: 5/180, guessed at random."
+
+
+def test_summary_reads_timeouts_from_the_log(tmp_path):
+    from intuition_trading.puzzles import load_corpus
+
+    corpus = load_corpus()
+    if not corpus.valid_sessions:
+        import pytest
+
+        pytest.skip("no data in data/bars/ -- run fetch.py first")
+
+    path = tmp_path / "rounds.csv"
+    keys = iter(["up", "timeout", "down", "timeout"])
+    game.run_session(
+        corpus, rounds=4, seed=3, session_id="timed", time_limit=5,
+        on_round=lambda r: game.log_round(r, path=path),
+        key_getter=lambda fig, valid_keys: next(keys), advance_getter=lambda fig: None,
+    )
+
+    lines = stats.summary("timed", path=path).split("\n")
+    assert "/4 " in lines[0]  # all four rounds scored
+    assert lines[2] == "           Guesses: 50% (1/2) up, 50% (1/2) down."
+    assert lines[3] == "           Timed out: 2/4, guessed at random."

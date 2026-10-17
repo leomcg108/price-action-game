@@ -113,25 +113,37 @@ class Launcher:
     """The start screen's state and widgets. `wait()` blocks until the
     player starts a session or backs out."""
 
-    def __init__(self, fig, rounds: int = config.LAUNCHER_ROUNDS, horizon: int = config.LAUNCHER_HORIZON):
+    def __init__(
+        self, fig,
+        rounds: int = config.LAUNCHER_ROUNDS,
+        horizon: int = config.LAUNCHER_HORIZON,
+        timer: int = config.LAUNCHER_TIMER,
+    ):
         self.fig = fig
         # held on to: closing the window replaces fig.canvas, and the loop
         # must be stopped on the canvas it's actually blocking on
         self.canvas = fig.canvas
         self.rounds = rounds
         self.horizon = horizon
+        self.timer = timer
         self.started = False
         self.closed = False
 
         clear_figure(fig)
         self._draw_banner()
-        self.round_buttons = self._option_row(0.44, "Rounds", config.ROUND_OPTIONS, str, "rounds")
+        self.round_buttons = self._option_row(0.50, "Rounds", config.ROUND_OPTIONS, str, "rounds")
         self.horizon_buttons = self._option_row(
-            0.31, "Horizon", config.HORIZON_OPTIONS, lambda v: f"{v} min", "horizon"
+            0.39, "Horizon", config.HORIZON_OPTIONS, lambda v: f"{v} min", "horizon"
+        )
+        self.timer_buttons = self._option_row(
+            0.28, "Timer", config.TIMER_OPTIONS, lambda v: f"{v} s" if v else "Off", "timer"
         )
         self.start_button = self._start_button()
         # so the session's first clear_figure disconnects them
-        fig._widgets = [*self.round_buttons.values(), *self.horizon_buttons.values(), self.start_button]
+        fig._widgets = [
+            *self.round_buttons.values(), *self.horizon_buttons.values(),
+            *self.timer_buttons.values(), self.start_button,
+        ]
         self._refresh()
 
     def _draw_banner(self) -> None:
@@ -160,7 +172,7 @@ class Launcher:
         return buttons
 
     def _start_button(self) -> Button:
-        bax = self.fig.add_axes([0.30, 0.06, 0.40, 0.16])
+        bax = self.fig.add_axes([0.30, 0.04, 0.40, 0.15])
         button = Button(bax, "START", color="#2e7d32", hovercolor="#388e3c")
         button.label.set_fontsize(24)
         button.label.set_fontweight("bold")
@@ -173,15 +185,17 @@ class Launcher:
             _paint(button, value == self.rounds)
         for value, button in self.horizon_buttons.items():
             _paint(button, value == self.horizon)
+        for value, button in self.timer_buttons.items():
+            _paint(button, value == self.timer)
         self.fig.canvas.draw_idle()
 
     def start(self) -> None:
         self.started = True
         self.canvas.stop_event_loop()
 
-    def wait(self) -> tuple[int, int] | None:
-        """Block until Start (button or Enter) -> (rounds, horizon), or
-        until the window is closed or q is pressed -> None."""
+    def wait(self) -> tuple[int, int, int] | None:
+        """Block until Start (button or Enter) -> (rounds, horizon, timer),
+        or until the window is closed or q is pressed -> None."""
 
         def on_key(event):
             if event.key == "enter":
@@ -201,10 +215,10 @@ class Launcher:
         for cid in cids:
             canvas.mpl_disconnect(cid)
 
-        return (self.rounds, self.horizon) if self.started else None
+        return (self.rounds, self.horizon, self.timer) if self.started else None
 
 
-def choose_settings(fig) -> tuple[int, int] | None:
-    """Show the start screen in `fig`; returns (rounds, horizon) once the
-    player presses Start, or None if they leave without starting."""
+def choose_settings(fig) -> tuple[int, int, int] | None:
+    """Show the start screen in `fig`; returns (rounds, horizon, timer) once
+    the player presses Start, or None if they leave without starting."""
     return Launcher(fig).wait()

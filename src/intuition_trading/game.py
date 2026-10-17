@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import os
 import random
+import time
 import uuid
 from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime, timezone
@@ -15,6 +16,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import mplfinance as mpf
 import pandas as pd
+from matplotlib.patches import Rectangle
 from matplotlib.widgets import Button
 
 from intuition_trading import config
@@ -245,9 +247,26 @@ def _draw_result_mark(ax, correct: bool) -> None:
         ax.plot([x, x + 0.06], [y + 0.06, y - 0.06], **kwargs)
 
 
-def reveal(fig, ax, view: PuzzleView, answer: PuzzleAnswer, correct: bool) -> None:
+def _draw_timeout_note(ax, guess: int) -> None:
+    """Muted note beside the tick/cross when the clock ran out, so the mark
+    isn't mistaken for a verdict on a choice the player never made."""
+    direction = "up" if guess == 1 else "down"
+    ax.text(
+        0.13, 0.90, f"Time's up: guessed {direction} at random",
+        transform=ax.transAxes, ha="left", va="center", fontsize=10, color="#757575",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.85, pad=2),  # legible over candles
+    )
+
+
+def reveal(
+    fig, ax, view: PuzzleView, answer: PuzzleAnswer, correct: bool,
+    timed_out: bool = False, guess: int = 0,
+) -> None:
     """Draw the horizon into the reserved space, expand y-limits if needed,
-    and mark the result. The reveal is permitted to see the future."""
+    and mark the result. The reveal is permitted to see the future.
+
+    `timed_out`/`guess` add a note that the guess was the random one made
+    when the clock ran out."""
     total_bars = config.LOOKBACK_BARS + view.horizon_width
     frame = _horizon_frame(answer.horizon_bars, total_bars)
     mpf.plot(frame, type="candle", style=_STYLE, ax=ax, volume=False, datetime_format=" ", xrotation=0)
@@ -261,6 +280,8 @@ def reveal(fig, ax, view: PuzzleView, answer: PuzzleAnswer, correct: bool) -> No
     ax.axhline(0.0, linestyle=":", color="#999999", linewidth=1)
     ax.axhline(answer.horizon_bars["close"].iloc[-1], linestyle=":", color="#999999", linewidth=1)
     _draw_result_mark(ax, correct)
+    if timed_out:
+        _draw_timeout_note(ax, guess)
 
     if config.REVEAL_IDENTITY:
         print(f"{answer.ticker}  {answer.session_date}")
@@ -296,6 +317,52 @@ def _wait_for_key(fig, valid_keys: tuple[str, ...]) -> str:
             break
     fig.canvas.mpl_disconnect(cid)
     return fig._clicked_key
+
+
+class _Countdown:
+    """A thin bar across the top of the chart that empties over `seconds`.
+    When it runs out, it ends the guess wait the way a button click does:
+    "timeout" goes into fig._clicked_key and the event loop stops.
+
+    Ticks come from a matplotlib timer, which only fires while the event
+    loop runs (as it does throughout the guess wait). `clock` is injectable
+    so tests can drive tick() without waiting in real time.
+    """
+
+    _INTERVAL_MS = 100
+
+    def __init__(self, fig, seconds: float, clock=time.monotonic):
+        self.fig = fig
+        self.seconds = seconds
+        self.clock = clock
+        self.started = clock()
+
+        x0, y0, width, height = _CHART_RECT
+        self.full_width = width
+        self.bar = Rectangle(
+            (x0, y0 + height + 0.008), width, 0.012,
+            transform=fig.transFigure, facecolor="#9e9e9e", edgecolor="none",
+        )
+        fig.add_artist(self.bar)
+
+        self.timer = fig.canvas.new_timer(interval=self._INTERVAL_MS)
+        self.timer.add_callback(self.tick)
+        self.timer.start()
+
+    def tick(self) -> None:
+        left = max(0.0, 1.0 - (self.clock() - self.started) / self.seconds)
+        self.bar.set_width(self.full_width * left)
+        if left == 0.0:
+            self.timer.stop()
+            self.fig._clicked_key = "timeout"
+            self.fig.canvas.stop_event_loop()
+        self.fig.canvas.draw_idle()
+
+    def stop(self) -> None:
+        """Stop ticking and take the bar off the chart. Must run once the
+        guess is in, or a late tick would cut the reveal's wait short."""
+        self.timer.stop()
+        self.bar.remove()
 
 
 def _wait_for_any_key(fig) -> None:
@@ -342,6 +409,10 @@ class RoundResult:
     shown_at: datetime
     answered_at: datetime
     ms_to_answer: int
+    # added after the original schema: keep these last (see
+    # stats.ADDED_FIELDS), so logs started under the old header stay readable
+    time_limit_s: int  # seconds allowed for the guess; 0 = no timer
+    timed_out: bool  # clock ran out, so `guess` was picked at random
 
 
 # --- Logging ---------------------------------------------------------------
@@ -363,7 +434,10 @@ def log_round(result: RoundResult, path: Path = config.ROUNDS_CSV) -> None:
 
     Written immediately -- not buffered -- at the moment the answer is
     committed, before the reveal is drawn. Creates the file with a header if
-    absent. Never rewrites or rotates it.
+    absent. Never rewrites or rotates it -- including its header, so a log
+    started before columns were added keeps its old header, and rows carry
+    the newer columns as unnamed trailing fields (stats reads them by
+    position).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not path.exists()
@@ -388,9 +462,15 @@ def play_round(
     advance_getter=_wait_for_any_key,
     on_round=lambda result: None,
     fig=None,
+    time_limit: int = 0,
+    coin_flip=lambda: random.choice((1, -1)),
 ) -> RoundResult | None:
     """Play one round: render, wait for a guess, reveal. Returns None if the
     player quit instead of answering.
+
+    With `time_limit` seconds set, a countdown runs during the guess; if it
+    runs out, `coin_flip` picks the guess. Its own randomness, not `rng`, so
+    a seeded session's puzzle sequence doesn't depend on timeouts.
 
     `round_num`/`total_rounds` are only used for the on-chart "n/total"
     progress indicator -- purely a position in the session, not a score.
@@ -409,15 +489,25 @@ def play_round(
     fig.show()
     shown_at = datetime.now(timezone.utc)
 
-    key = key_getter(fig, ("up", "down", "q"))
+    countdown = _Countdown(fig, time_limit) if time_limit else None
+    valid_keys = ("up", "down", "q") + (("timeout",) if countdown else ())
+    try:
+        key = key_getter(fig, valid_keys)
+    finally:
+        if countdown:
+            countdown.stop()
     answered_at = datetime.now(timezone.utc)
 
-    if key not in _KEY_TO_GUESS:
+    timed_out = key == "timeout"
+    if timed_out:
+        guess = coin_flip()
+    elif key in _KEY_TO_GUESS:
+        guess = _KEY_TO_GUESS[key]
+    else:
         if owns_fig:
             plt.close(fig)
         return None
 
-    guess = _KEY_TO_GUESS[key]
     correct = guess == answer.label
     ms_to_answer = int((answered_at - shown_at).total_seconds() * 1000)
 
@@ -442,10 +532,12 @@ def play_round(
         shown_at=shown_at,
         answered_at=answered_at,
         ms_to_answer=ms_to_answer,
+        time_limit_s=time_limit,
+        timed_out=timed_out,
     )
     on_round(result)  # logged here, before the reveal is drawn (non-negotiable #2)
 
-    reveal(fig, ax, view, answer, correct)
+    reveal(fig, ax, view, answer, correct, timed_out=timed_out, guess=guess)
     advance_getter(fig)
     if owns_fig:
         plt.close(fig)
@@ -463,11 +555,13 @@ def run_session(
     key_getter=_wait_for_key,
     advance_getter=_wait_for_any_key,
     fig=None,
+    time_limit: int = 0,
 ) -> list[RoundResult]:
     """Play a fixed-length session. Stops early if the player quits.
 
-    `horizon_bars` (one of config.HORIZON_OPTIONS) applies to every round in
-    the session -- it's a session setting, not a per-round one.
+    `horizon_bars` (one of config.HORIZON_OPTIONS) and `time_limit` (one of
+    config.TIMER_OPTIONS, in seconds; 0 = no timer) apply to every round in
+    the session -- they're session settings, not per-round ones.
 
     `fig` is the window to play in (e.g. the one the start screen was shown
     in); the caller then owns closing it. Without one, the session opens
@@ -485,6 +579,7 @@ def run_session(
             result = play_round(
                 corpus, rng, session_id, round_num=round_num, total_rounds=rounds, horizon_bars=horizon_bars,
                 key_getter=key_getter, advance_getter=advance_getter, on_round=on_round, fig=fig,
+                time_limit=time_limit,
             )
             if result is None:
                 break
@@ -508,7 +603,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description=__doc__,
-        epilog="With neither --rounds nor --horizon, a start screen lets you pick them with buttons.",
+        epilog="With none of --rounds, --horizon or --timer, a start screen lets you pick them with buttons.",
     )
     parser.add_argument("--rounds", type=int, default=None, help=f"default {config.SESSION_ROUNDS}")
     parser.add_argument("--seed", type=int, default=None)
@@ -516,26 +611,31 @@ if __name__ == "__main__":
         "--horizon", type=int, choices=config.HORIZON_OPTIONS, default=None,
         help=f"prediction horizon in minutes (default {config.HORIZON_BARS})",
     )
+    parser.add_argument(
+        "--timer", type=int, choices=config.TIMER_OPTIONS, default=None,
+        help=f"seconds per guess, 0 for no timer (default {config.TIMER_SECONDS})",
+    )
     args = parser.parse_args()
 
     corpus = load_corpus()
     fig = new_figure()
     fig.show()
 
-    if args.rounds is None and args.horizon is None:
+    if args.rounds is None and args.horizon is None and args.timer is None:
         settings = choose_settings(fig)
         if settings is None:  # window closed or q pressed before starting
             plt.close(fig)
             sys.exit(0)
-        rounds, horizon = settings
+        rounds, horizon, timer = settings
     else:
         rounds = args.rounds if args.rounds is not None else config.SESSION_ROUNDS
         horizon = args.horizon if args.horizon is not None else config.HORIZON_BARS
+        timer = args.timer if args.timer is not None else config.TIMER_SECONDS
 
     session_id = str(uuid.uuid4())
     run_session(
         corpus, rounds=rounds, seed=args.seed, session_id=session_id,
-        horizon_bars=horizon, on_round=log_round, fig=fig,
+        horizon_bars=horizon, on_round=log_round, fig=fig, time_limit=timer,
     )
 
     summary = stats.summary(session_id)

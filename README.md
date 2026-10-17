@@ -58,13 +58,13 @@ python -m intuition_trading.fetch
 python -m intuition_trading.game
 ```
 
-The game opens on a start screen: pick the number of rounds and the prediction
-horizon with the buttons, then press **Start** (or Enter). Pressing Start
-straight away plays 10 rounds at a 30-minute horizon. Passing `--rounds` or
-`--horizon` on the command line skips the start screen
-(`python -m intuition_trading.game --rounds 20 --horizon 10`).
+The game opens on a start screen: pick the number of rounds, the prediction
+horizon and an optional timer with the buttons, then press **Start** (or Enter).
+Pressing Start straight away plays 10 rounds at a 30-minute horizon with no
+timer. Passing `--rounds`, `--horizon` or `--timer` on the command line skips
+the start screen (`python -m intuition_trading.game --rounds 20 --horizon 10 --timer 5`).
 
-![Start screen: the INTUITION TRADING banner, buttons for rounds and horizon, and a Start button](docs/images/start-screen.png)
+![Start screen: the INTUITION TRADING banner, buttons for rounds, horizon and timer, and a Start button](docs/images/start-screen.png)
 
 Each round shows an hour of candles, with the horizon's width left empty to the
 right. There's no price scale, ticker or time of day.
@@ -73,6 +73,14 @@ right. There's no price scale, ticker or time of day.
 
 Arrow keys: **↑** predicts up, **↓** predicts down. **q** quits early. The
 buttons under the chart do the same with the mouse.
+
+**The timer** (5, 10 or 20 seconds) puts a bar above the chart that empties as
+time runs out — some of the pressure of deciding in a live market. If it runs
+out, the game guesses up or down at random for you, and the round is scored on
+that guess. That keeps every round a fair coin flip for the statistics, and it
+means letting the clock run out can never help: it's not a way to sit a round
+out. The reveal says when a guess was the random one, and the results count
+your timeouts.
 
 When the session ends (or you quit), the window shows your results, the same
 summary that's printed to the terminal. **End** (or Enter / **q**) closes the
@@ -240,6 +248,13 @@ rate alone hides it. A one-sided split isn't wrong in itself — intraday drift 
 real — but it does mean much of what's being measured is a habit rather than a
 read, and it's worth knowing which.
 
+Random guesses made when the timer ran out aren't yours, so the guess lines
+leave them out. When there were any, a separate line counts them:
+
+```
+           Timed out: 2/20, guessed at random.
+```
+
 ### Why 53% isn't a business
 
 Even a genuine edge has to clear costs. Breakeven hit rate is roughly:
@@ -299,9 +314,12 @@ All in `config.py`:
 | `LOOKBACK_BARS` | `60` | Visible history, one hour |
 | `HORIZON_OPTIONS` | `(10, 20, 30)` | Selectable prediction horizons, in minutes, on the start screen or via `--horizon` |
 | `SESSION_ROUNDS` | `20` | Session length when using the CLI flags; overridable via `--rounds` |
+| `TIMER_OPTIONS` | `(0, 5, 10, 20)` | Seconds per guess (`0` = no timer), on the start screen or via `--timer` |
+| `TIMER_SECONDS` | `0` | Timer when using the CLI flags; overridable via `--timer` |
 | `ROUND_OPTIONS` | `(10, 20, 30, 50)` | Session lengths offered on the start screen |
 | `LAUNCHER_ROUNDS` | `10` | Start screen's preselected rounds |
 | `LAUNCHER_HORIZON` | `30` | Start screen's preselected horizon |
+| `LAUNCHER_TIMER` | `0` | Start screen's preselected timer (off) |
 | `MIN_BARS_PER_DAY` | `385` | Of 390; drops gappy days and half-days |
 | `REVEAL_IDENTITY` | `False` | Show ticker and date after the reveal |
 | `UNIVERSE` | 22 symbols | Default/backup set — see [Universe](#universe) |
@@ -340,7 +358,20 @@ round_id, session_id, played_at, corpus_version, puzzle_id,
 ticker, session_date, anchor_idx, lookback_bars, horizon_bars,
 guess, label, correct,
 raw_return, sigma_lookback, trend_r2, minutes_from_open,
-shown_at, answered_at, ms_to_answer
+shown_at, answered_at, ms_to_answer,
+time_limit_s, timed_out
+```
+
+`time_limit_s` is the session's timer (`0` for none), and `timed_out` marks
+rounds whose `guess` was the random one. Both were added after the original
+schema, so they come last: a log started before them keeps its original header
+(the log is never rewritten), and newer rows carry the two extra fields at the
+end. The game reads such a log correctly. If you analyse it yourself with
+pandas, a plain `pd.read_csv` will refuse the mismatched rows — pass the full
+column list instead:
+
+```python
+pd.read_csv("data/rounds.csv", names=[...all 22 columns above...], skiprows=1)
 ```
 
 Three of these are computed at generation time and never shown to you, so you
@@ -355,8 +386,9 @@ doesn't act on it, you can retroactively apply a dead-zone filter — "how do I 
 if we ignore rounds where the move was under 0.1%?" — across sessions you played
 months ago.
 
-`ms_to_answer` is there for the same reason: no UI, no timer, just two timestamps
-and a subtraction, so that later analysis has a history to work with.
+`ms_to_answer` is there for the same reason: no UI, just two timestamps and a
+subtraction, so that later analysis has a history to work with. (On a
+timed-out round it's simply the length of the timer.)
 
 ### `.gitignore`
 
@@ -373,7 +405,7 @@ price-action-game/
 │   ├── fetch.py      # corpus builder — run on a schedule
 │   ├── puzzles.py    # corpus loading, features, puzzle generation
 │   ├── game.py       # session loop, chart, input, logging
-│   ├── launcher.py   # start screen: rounds/horizon buttons
+│   ├── launcher.py   # start screen: rounds/horizon/timer buttons
 │   ├── results.py    # results screen: summary and End button
 │   └── stats.py      # binomial tail, Wilson interval, summary
 ├── tests/
