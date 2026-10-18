@@ -1,13 +1,13 @@
 from pathlib import Path
 
 LOOKBACK_BARS = 60  # visible history, one hour
-HORIZON_OPTIONS = (10, 20, 30)  # minutes; selectable per session via --horizon
-HORIZON_BARS = HORIZON_OPTIONS[0]  # default prediction horizon
+HORIZON_OPTIONS = (5, 10, 20, 30)  # minutes; selectable per session via --horizon
+HORIZON_BARS = 10  # default prediction horizon when using the CLI flags; one of HORIZON_OPTIONS
 SESSION_ROUNDS = 20  # overridable via CLI
 
 # Seconds allowed per guess; 0 = no timer. When time runs out, the round is
 # guessed at random, so every round stays a fair 50/50 for the statistics.
-TIMER_OPTIONS = (0, 5, 10, 20)  # selectable per session via --timer
+TIMER_OPTIONS = (0, 2, 5, 10)  # selectable per session via --timer
 TIMER_SECONDS = 0  # default when using the CLI flags
 
 # Start screen (shown when the game is launched without --rounds/--horizon/--timer)

@@ -45,6 +45,12 @@ def test_launcher_defaults_are_offered_options():
     assert config.LAUNCHER_TIMER in config.TIMER_OPTIONS
 
 
+def test_cli_defaults_are_offered_options():
+    """The --horizon/--timer defaults must be values those flags accept."""
+    assert config.HORIZON_BARS in config.HORIZON_OPTIONS
+    assert config.TIMER_SECONDS in config.TIMER_OPTIONS
+
+
 @pytest.mark.parametrize("word", ["INTUITION", "TRADING"])
 def test_banner_rows_line_up(word):
     rows = launcher.banner(word).split("\n")

@@ -74,7 +74,7 @@ right. There's no price scale, ticker or time of day.
 Arrow keys: **↑** predicts up, **↓** predicts down. **q** quits early. The
 buttons under the chart do the same with the mouse.
 
-**The timer** (5, 10 or 20 seconds) puts a bar above the chart that empties as
+**The timer** (2, 5 or 10 seconds) puts a bar above the chart that empties as
 time runs out — some of the pressure of deciding in a live market. If it runs
 out, the game guesses up or down at random for you, and the round is scored on
 that guess. That keeps every round a fair coin flip for the statistics, and it
@@ -312,9 +312,10 @@ All in `config.py`:
 | Setting | Default | Notes |
 |---------|---------|-------|
 | `LOOKBACK_BARS` | `60` | Visible history, one hour |
-| `HORIZON_OPTIONS` | `(10, 20, 30)` | Selectable prediction horizons, in minutes, on the start screen or via `--horizon` |
+| `HORIZON_OPTIONS` | `(5, 10, 20, 30)` | Selectable prediction horizons, in minutes, on the start screen or via `--horizon` |
+| `HORIZON_BARS` | `10` | Horizon when using the CLI flags; overridable via `--horizon` |
 | `SESSION_ROUNDS` | `20` | Session length when using the CLI flags; overridable via `--rounds` |
-| `TIMER_OPTIONS` | `(0, 5, 10, 20)` | Seconds per guess (`0` = no timer), on the start screen or via `--timer` |
+| `TIMER_OPTIONS` | `(0, 2, 5, 10)` | Seconds per guess (`0` = no timer), on the start screen or via `--timer` |
 | `TIMER_SECONDS` | `0` | Timer when using the CLI flags; overridable via `--timer` |
 | `ROUND_OPTIONS` | `(10, 20, 30, 50)` | Session lengths offered on the start screen |
 | `LAUNCHER_ROUNDS` | `10` | Start screen's preselected rounds |
