@@ -16,6 +16,8 @@ LAUNCHER_ROUNDS = 10  # preselected, so pressing Start straight away uses these
 LAUNCHER_HORIZON = 30  # one of HORIZON_OPTIONS
 LAUNCHER_TIMER = 0  # one of TIMER_OPTIONS
 
+THEME = "light"  # "light" or "dark"; switchable on the start screen or via --theme
+
 MIN_BARS_PER_DAY = 385  # of 390; drops gappy days and half-days
 
 REVEAL_IDENTITY = False  # see spec: debugging only, do not add a mid-session flip

@@ -21,8 +21,7 @@ from matplotlib.widgets import Button
 
 from intuition_trading import config
 from intuition_trading.puzzles import Corpus, PuzzleAnswer, PuzzleView, generate_puzzle
-
-_STYLE = mpf.make_mpf_style(base_mpf_style="yahoo", gridstyle="")
+from intuition_trading.theme import LIGHT, THEMES, Theme
 
 
 # --- Chart -------------------------------------------------------------
@@ -87,6 +86,14 @@ def _style_axes(ax, ylim: tuple[float, float], total_bars: int) -> None:
     ax.set_title("")
     ax.grid(False)
 
+    # colours only, set explicitly rather than trusting rcParams at creation
+    theme = theme_of(ax.figure)
+    ax.set_facecolor(theme.chart)
+    ax.tick_params(axis="x", colors=theme.text)
+    ax.xaxis.label.set_color(theme.text)
+    for spine in ax.spines.values():
+        spine.set_edgecolor(theme.spine)
+
 
 def _draw_round_counter(ax, round_num: int, total_rounds: int) -> None:
     """Small, muted "n/total" in the top-right corner. Round progress only --
@@ -95,7 +102,7 @@ def _draw_round_counter(ax, round_num: int, total_rounds: int) -> None:
     ax.text(
         0.97, 0.94, f"{round_num}/{total_rounds}",
         transform=ax.transAxes, ha="right", va="top",
-        fontsize=9, color="#999999",
+        fontsize=9, color=theme_of(ax.figure).muted,
     )
 
 
@@ -106,10 +113,29 @@ _FIGSIZE = (8.0, 5.75)  # mplfinance's default figure size
 _CHART_RECT = [0.03, 0.27, 0.94, 0.70]
 
 
-def new_figure():
+def theme_of(fig) -> Theme:
+    return getattr(fig, "_theme", LIGHT)
+
+
+def apply_theme(fig, theme: Theme | str) -> None:
+    """Make `theme` the figure's palette, for everything drawn from now on.
+
+    Setting fig.mpfstyle matters: mplfinance's figure re-applies that style's
+    rcParams each time an axes is added, so buttons and charts created
+    afterwards pick the theme up too. Whatever is already on screen needs
+    redrawing (the start screen re-colours itself when switched)."""
+    theme = THEMES[theme] if isinstance(theme, str) else theme
+    fig._theme = theme
+    fig.mpfstyle = theme.mpf_style
+    fig.set_facecolor(theme.figure)
+
+
+def new_figure(theme: Theme | str = config.THEME):
     """The one figure a session draws every round into. Reusing it keeps the
     window where the player put it, instead of a new window per round."""
-    fig = mpf.figure(style=_STYLE, figsize=_FIGSIZE)
+    theme = THEMES[theme] if isinstance(theme, str) else theme
+    fig = mpf.figure(style=theme.mpf_style, figsize=_FIGSIZE)
+    apply_theme(fig, theme)
     # Drop matplotlib's built-in key shortcuts for this window. "q" is the
     # game's own quit key (ending a session early, then leaving the results
     # screen), but by default it also closes the window, taking the results
@@ -187,13 +213,14 @@ def _install_buttons(fig) -> None:
     y = 0.06
     left0 = 0.5 - (3 * width + 2 * gap) / 2
 
-    specs = [("down", "#c62828"), ("up", "#2e7d32"), ("right", "#616161")]
+    theme = theme_of(fig)
+    specs = [("down", theme.bad), ("up", theme.good), ("right", theme.nav_arrow)]
     buttons = []
     for i, (direction, color) in enumerate(specs):
         left = left0 + i * (width + gap)
         bax = fig.add_axes([left, y, width, height])
-        button = Button(bax, "", color="#eeeeee", hovercolor="#e0e0e0")
-        bax.patch.set_edgecolor("#bbbbbb")
+        button = Button(bax, "", color=theme.button, hovercolor=theme.button_hover)
+        bax.patch.set_edgecolor(theme.button_edge)
         bax.patch.set_linewidth(1)
         _draw_arrow(bax, direction, color)
         key = "next" if direction == "right" else direction
@@ -225,7 +252,8 @@ def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1, fig=None
         clear_figure(fig)
 
     ax = fig.add_axes(_CHART_RECT)
-    mpf.plot(frame, type="candle", style=_STYLE, ax=ax, volume=False, datetime_format=" ", xrotation=0)
+    style = theme_of(fig).mpf_style
+    mpf.plot(frame, type="candle", style=style, ax=ax, volume=False, datetime_format=" ", xrotation=0)
     _style_axes(ax, _range_ylim(view.bars), total_bars)
     _draw_round_counter(ax, round_num, total_rounds)
 
@@ -237,7 +265,8 @@ def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1, fig=None
 
 def _draw_result_mark(ax, correct: bool) -> None:
     """Green tick or red cross. Nothing else."""
-    color = "#2e7d32" if correct else "#c62828"
+    theme = theme_of(ax.figure)
+    color = theme.good if correct else theme.bad
     x, y = 0.05, 0.90  # axes-fraction coordinates, top-left corner
     kwargs = dict(transform=ax.transAxes, color=color, linewidth=4, solid_capstyle="round")
     if correct:
@@ -251,10 +280,11 @@ def _draw_timeout_note(ax, guess: int) -> None:
     """Muted note beside the tick/cross when the clock ran out, so the mark
     isn't mistaken for a verdict on a choice the player never made."""
     direction = "up" if guess == 1 else "down"
+    theme = theme_of(ax.figure)
     ax.text(
         0.13, 0.90, f"Time's up: guessed {direction} at random",
-        transform=ax.transAxes, ha="left", va="center", fontsize=10, color="#757575",
-        bbox=dict(facecolor="white", edgecolor="none", alpha=0.85, pad=2),  # legible over candles
+        transform=ax.transAxes, ha="left", va="center", fontsize=10, color=theme.note,
+        bbox=dict(facecolor=theme.chart, edgecolor="none", alpha=0.85, pad=2),  # legible over candles
     )
 
 
@@ -269,16 +299,18 @@ def reveal(
     when the clock ran out."""
     total_bars = config.LOOKBACK_BARS + view.horizon_width
     frame = _horizon_frame(answer.horizon_bars, total_bars)
-    mpf.plot(frame, type="candle", style=_STYLE, ax=ax, volume=False, datetime_format=" ", xrotation=0)
+    theme = theme_of(fig)
+    mpf.plot(frame, type="candle", style=theme.mpf_style, ax=ax, volume=False, datetime_format=" ", xrotation=0)
 
     ylim = _expand_ylim(_range_ylim(view.bars), view.bars, answer.horizon_bars)
     _style_axes(ax, ylim, total_bars)
+    line = dict(linestyle=":", color=theme.muted, linewidth=1)
     # marks the lookback/horizon boundary -- only ever drawn here, on reveal
-    ax.axvline(config.LOOKBACK_BARS - 0.5, linestyle=":", color="#999999", linewidth=1)
+    ax.axvline(config.LOOKBACK_BARS - 0.5, **line)
     # anchor close (always 0.0, by normalisation) and the final horizon
     # close, so the size of the move is visible at a glance -- also reveal-only
-    ax.axhline(0.0, linestyle=":", color="#999999", linewidth=1)
-    ax.axhline(answer.horizon_bars["close"].iloc[-1], linestyle=":", color="#999999", linewidth=1)
+    ax.axhline(0.0, **line)
+    ax.axhline(answer.horizon_bars["close"].iloc[-1], **line)
     _draw_result_mark(ax, correct)
     if timed_out:
         _draw_timeout_note(ax, guess)
@@ -341,7 +373,7 @@ class _Countdown:
         self.full_width = width
         self.bar = Rectangle(
             (x0, y0 + height + 0.008), width, 0.012,
-            transform=fig.transFigure, facecolor="#9e9e9e", edgecolor="none",
+            transform=fig.transFigure, facecolor=theme_of(fig).countdown, edgecolor="none",
         )
         fig.add_artist(self.bar)
 
@@ -615,10 +647,14 @@ if __name__ == "__main__":
         "--timer", type=int, choices=config.TIMER_OPTIONS, default=None,
         help=f"seconds per guess, 0 for no timer (default {config.TIMER_SECONDS})",
     )
+    parser.add_argument(
+        "--theme", choices=sorted(THEMES), default=config.THEME,
+        help=f"colour theme (default {config.THEME}); doesn't skip the start screen",
+    )
     args = parser.parse_args()
 
     corpus = load_corpus()
-    fig = new_figure()
+    fig = new_figure(args.theme)
     fig.show()
 
     if args.rounds is None and args.horizon is None and args.timer is None:
@@ -643,7 +679,7 @@ if __name__ == "__main__":
     print(summary)  # also in the terminal, so it outlives the window
 
     if not plt.fignum_exists(fig.number):  # window closed mid-session
-        fig = new_figure()
+        fig = new_figure(theme_of(fig))
         fig.show()
     show_results(fig, summary)
     plt.close(fig)

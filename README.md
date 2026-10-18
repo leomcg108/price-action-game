@@ -59,12 +59,18 @@ python -m intuition_trading.game
 ```
 
 The game opens on a start screen: pick the number of rounds, the prediction
-horizon and an optional timer with the buttons, then press **Start** (or Enter).
-Pressing Start straight away plays 10 rounds at a 30-minute horizon with no
-timer. Passing `--rounds`, `--horizon` or `--timer` on the command line skips
-the start screen (`python -m intuition_trading.game --rounds 20 --horizon 10 --timer 5`).
+horizon, an optional timer and a light or dark theme with the buttons, then
+press **Start** (or Enter). Pressing Start straight away plays 10 rounds at a
+30-minute horizon with no timer. Passing `--rounds`, `--horizon` or `--timer`
+on the command line skips the start screen
+(`python -m intuition_trading.game --rounds 20 --horizon 10 --timer 5`).
 
-![Start screen: the INTUITION TRADING banner, buttons for rounds, horizon and timer, and a Start button](docs/images/start-screen.png)
+![Start screen: the INTUITION TRADING banner, buttons for rounds, horizon, timer and theme, and a Start button](docs/images/start-screen.png)
+
+The theme applies to every screen after the start screen too. To make dark the
+default, set `THEME = "dark"` in `config.py`, or pass `--theme dark` (which only
+sets the starting theme; it doesn't skip the start screen). Themes change
+colours only — the chart's geometry is identical in both.
 
 Each round shows an hour of candles, with the horizon's width left empty to the
 right. There's no price scale, ticker or time of day.
@@ -321,6 +327,7 @@ All in `config.py`:
 | `LAUNCHER_ROUNDS` | `10` | Start screen's preselected rounds |
 | `LAUNCHER_HORIZON` | `30` | Start screen's preselected horizon |
 | `LAUNCHER_TIMER` | `0` | Start screen's preselected timer (off) |
+| `THEME` | `"light"` | `"light"` or `"dark"`; switchable on the start screen or via `--theme` |
 | `MIN_BARS_PER_DAY` | `385` | Of 390; drops gappy days and half-days |
 | `REVEAL_IDENTITY` | `False` | Show ticker and date after the reveal |
 | `UNIVERSE` | 22 symbols | Default/backup set — see [Universe](#universe) |
@@ -406,8 +413,9 @@ price-action-game/
 │   ├── fetch.py      # corpus builder — run on a schedule
 │   ├── puzzles.py    # corpus loading, features, puzzle generation
 │   ├── game.py       # session loop, chart, input, logging
-│   ├── launcher.py   # start screen: rounds/horizon/timer buttons
+│   ├── launcher.py   # start screen: rounds/horizon/timer/theme buttons
 │   ├── results.py    # results screen: summary and End button
+│   ├── theme.py      # light and dark colour palettes
 │   └── stats.py      # binomial tail, Wilson interval, summary
 ├── tests/
 │   ├── test_no_leakage.py

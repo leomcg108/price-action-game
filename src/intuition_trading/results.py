@@ -9,24 +9,25 @@ from __future__ import annotations
 
 from matplotlib.widgets import Button
 
-from intuition_trading.game import clear_figure
+from intuition_trading.game import clear_figure, theme_of
 
 
 def draw_results(fig, summary: str) -> Button:
     """Replace whatever `fig` shows with the summary and an End button;
     returns the button."""
     clear_figure(fig)
+    theme = theme_of(fig)
     fig.text(
         0.5, 0.60, summary,
         ha="center", va="center", multialignment="left",  # keep the text's own column alignment
         # as large as the longest line (~70 chars) allows while the frame
         # keeps a margin inside the window
-        family="monospace", fontsize=12, linespacing=1.6, color="black",
-        bbox=dict(boxstyle="square,pad=1.0", facecolor="white", edgecolor="black", linewidth=2),
+        family="monospace", fontsize=12, linespacing=1.6, color=theme.panel_text,
+        bbox=dict(boxstyle="square,pad=1.0", facecolor=theme.panel, edgecolor=theme.frame, linewidth=2),
     )
 
     bax = fig.add_axes([0.38, 0.08, 0.24, 0.13])
-    end = Button(bax, "END", color="#424242", hovercolor="#616161")
+    end = Button(bax, "END", color=theme.end_button, hovercolor=theme.end_hover)
     end.label.set_fontsize(20)
     end.label.set_fontweight("bold")
     end.label.set_color("white")

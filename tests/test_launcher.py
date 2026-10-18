@@ -93,7 +93,7 @@ def test_only_the_chosen_option_is_highlighted(screen):
     choice = config.ROUND_OPTIONS[1]
     _fire(screen.round_buttons[choice])
     for value, button in screen.round_buttons.items():
-        assert (button.color == launcher._SELECTED) == (value == choice)
+        assert (button.color == game.theme_of(screen.fig).selected) == (value == choice)
 
 
 def test_q_leaves_without_starting(screen):
@@ -101,3 +101,54 @@ def test_q_leaves_without_starting(screen):
     t = _in_background(screen.fig, lambda: screen.fig.canvas.callbacks.process("key_press_event", press_q))
     assert screen.wait() is None
     t.join(timeout=5)
+
+
+def test_theme_row_offers_light_and_dark(screen):
+    assert list(screen.theme_buttons) == ["light", "dark"]
+    assert [b.label.get_text() for b in screen.theme_buttons.values()] == ["Light", "Dark"]
+
+
+def test_choosing_dark_switches_the_whole_screen(screen):
+    from matplotlib.colors import same_color
+
+    from intuition_trading.theme import DARK
+
+    _fire(screen.theme_buttons["dark"])
+    assert game.theme_of(screen.fig) is DARK
+    assert same_color(screen.fig.get_facecolor(), DARK.figure)
+    assert all(same_color(t.get_color(), DARK.banner) for t in screen._texts[:2])
+    assert same_color(screen.round_buttons[config.LAUNCHER_ROUNDS].ax.get_facecolor(), DARK.selected)
+    assert same_color(screen.round_buttons[config.ROUND_OPTIONS[-1]].ax.get_facecolor(), DARK.button)
+    # borders too: made under the light theme, they'd otherwise stay near-white
+    for button in (*screen.round_buttons.values(), screen.start_button):
+        assert all(same_color(s.get_edgecolor(), DARK.spine) for s in button.ax.spines.values())
+
+
+def test_the_session_after_the_start_screen_keeps_its_theme():
+    """The theme is chosen on the start screen but used by every round
+    drawn into the same window afterwards."""
+    import random
+
+    from matplotlib.colors import same_color
+
+    from intuition_trading.puzzles import generate_puzzle, load_corpus
+    from intuition_trading.theme import DARK
+
+    corpus = load_corpus()
+    if not corpus.valid_sessions:
+        pytest.skip("no data in data/bars/ -- run fetch.py first")
+
+    fig = game.new_figure("light")
+    screen = launcher.Launcher(fig)
+    _fire(screen.theme_buttons["dark"])
+
+    view, _ = generate_puzzle(corpus, random.Random(1))
+    _, ax = game.render(view, fig=fig)
+    assert same_color(ax.get_facecolor(), DARK.chart)
+    assert same_color(fig.get_facecolor(), DARK.figure)
+
+
+def test_theme_defaults_are_real_themes():
+    from intuition_trading.theme import THEMES
+
+    assert config.THEME in THEMES
