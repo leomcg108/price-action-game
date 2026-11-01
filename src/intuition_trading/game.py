@@ -163,6 +163,16 @@ def clear_figure(fig) -> None:
     fig.clf()
 
 
+def _plot_bars(ax, frame: pd.DataFrame, chart: str) -> None:
+    """Draw `frame` onto the chart as "candle" or "line" (closes only). Which
+    one changes how the bars look, never the axes or the limits."""
+    theme = theme_of(ax.figure)
+    mpf.plot(
+        frame, type=chart, style=theme.mpf_style, ax=ax, volume=False,
+        datetime_format=" ", xrotation=0, linecolor=theme.line,
+    )
+
+
 def _draw_arrow(bax, direction: str, color: str) -> None:
     """A thick, colour-coordinated arrow -- the button's only marking, drawn
     on the button's own axes rather than relying on font glyphs/weight."""
@@ -231,14 +241,18 @@ def _install_buttons(fig) -> None:
     fig._widgets = getattr(fig, "_widgets", []) + buttons  # so clear_figure can disconnect them
 
 
-def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1, fig=None):
-    """Render the question: lookback candles only, with the horizon's width
+def render(
+    view: PuzzleView, round_num: int = 1, total_rounds: int = 1, fig=None,
+    chart: str = config.CHART_TYPE,
+):
+    """Render the question: lookback bars only, with the horizon's width
     reserved as empty space to the right.
 
-    The signature accepts PuzzleView plus two plain session-progress ints and
-    the figure to draw into -- never PuzzleAnswer or anything derived from
-    it. That's what structurally enforces non-negotiable #1; round_num/
-    total_rounds can't carry price or outcome data no matter what.
+    The signature accepts PuzzleView plus plain session settings (progress
+    ints, the chart type) and the figure to draw into -- never PuzzleAnswer
+    or anything derived from it. That's what structurally enforces
+    non-negotiable #1; those settings can't carry price or outcome data no
+    matter what.
 
     `fig` is cleared completely first, so nothing from the previous round's
     reveal (horizon candles, limits, result mark) survives into this question.
@@ -252,8 +266,7 @@ def render(view: PuzzleView, round_num: int = 1, total_rounds: int = 1, fig=None
         clear_figure(fig)
 
     ax = fig.add_axes(_CHART_RECT)
-    style = theme_of(fig).mpf_style
-    mpf.plot(frame, type="candle", style=style, ax=ax, volume=False, datetime_format=" ", xrotation=0)
+    _plot_bars(ax, frame, chart)
     _style_axes(ax, _range_ylim(view.bars), total_bars)
     _draw_round_counter(ax, round_num, total_rounds)
 
@@ -290,7 +303,7 @@ def _draw_timeout_note(ax, guess: int) -> None:
 
 def reveal(
     fig, ax, view: PuzzleView, answer: PuzzleAnswer, correct: bool,
-    timed_out: bool = False, guess: int = 0,
+    timed_out: bool = False, guess: int = 0, chart: str = config.CHART_TYPE,
 ) -> None:
     """Draw the horizon into the reserved space, expand y-limits if needed,
     and mark the result. The reveal is permitted to see the future.
@@ -299,9 +312,12 @@ def reveal(
     when the clock ran out."""
     total_bars = config.LOOKBACK_BARS + view.horizon_width
     frame = _horizon_frame(answer.horizon_bars, total_bars)
-    theme = theme_of(fig)
-    mpf.plot(frame, type="candle", style=theme.mpf_style, ax=ax, volume=False, datetime_format=" ", xrotation=0)
+    if chart == "line":
+        # from the anchor's close, so the line carries on unbroken
+        frame.iloc[config.LOOKBACK_BARS - 1] = view.bars["close"].iloc[-1]
+    _plot_bars(ax, frame, chart)
 
+    theme = theme_of(fig)
     ylim = _expand_ylim(_range_ylim(view.bars), view.bars, answer.horizon_bars)
     _style_axes(ax, ylim, total_bars)
     line = dict(linestyle=":", color=theme.muted, linewidth=1)
@@ -445,6 +461,7 @@ class RoundResult:
     # stats.ADDED_FIELDS), so logs started under the old header stay readable
     time_limit_s: int  # seconds allowed for the guess; 0 = no timer
     timed_out: bool  # clock ran out, so `guess` was picked at random
+    chart: str  # how the round was drawn, one of config.CHART_OPTIONS
 
 
 # --- Logging ---------------------------------------------------------------
@@ -496,6 +513,7 @@ def play_round(
     fig=None,
     time_limit: int = 0,
     coin_flip=lambda: random.choice((1, -1)),
+    chart: str = config.CHART_TYPE,
 ) -> RoundResult | None:
     """Play one round: render, wait for a guess, reveal. Returns None if the
     player quit instead of answering.
@@ -517,7 +535,7 @@ def play_round(
     view, answer = generate_puzzle(corpus, rng, horizon_bars=horizon_bars)
 
     owns_fig = fig is None
-    fig, ax = render(view, round_num, total_rounds, fig=fig)
+    fig, ax = render(view, round_num, total_rounds, fig=fig, chart=chart)
     fig.show()
     shown_at = datetime.now(timezone.utc)
 
@@ -566,10 +584,11 @@ def play_round(
         ms_to_answer=ms_to_answer,
         time_limit_s=time_limit,
         timed_out=timed_out,
+        chart=chart,
     )
     on_round(result)  # logged here, before the reveal is drawn (non-negotiable #2)
 
-    reveal(fig, ax, view, answer, correct, timed_out=timed_out, guess=guess)
+    reveal(fig, ax, view, answer, correct, timed_out=timed_out, guess=guess, chart=chart)
     advance_getter(fig)
     if owns_fig:
         plt.close(fig)
@@ -588,12 +607,14 @@ def run_session(
     advance_getter=_wait_for_any_key,
     fig=None,
     time_limit: int = 0,
+    chart: str = config.CHART_TYPE,
 ) -> list[RoundResult]:
     """Play a fixed-length session. Stops early if the player quits.
 
-    `horizon_bars` (one of config.HORIZON_OPTIONS) and `time_limit` (one of
-    config.TIMER_OPTIONS, in seconds; 0 = no timer) apply to every round in
-    the session -- they're session settings, not per-round ones.
+    `horizon_bars` (one of config.HORIZON_OPTIONS), `time_limit` (one of
+    config.TIMER_OPTIONS, in seconds; 0 = no timer) and `chart` (one of
+    config.CHART_OPTIONS) apply to every round in the session -- they're
+    session settings, not per-round ones.
 
     `fig` is the window to play in (e.g. the one the start screen was shown
     in); the caller then owns closing it. Without one, the session opens
@@ -611,7 +632,7 @@ def run_session(
             result = play_round(
                 corpus, rng, session_id, round_num=round_num, total_rounds=rounds, horizon_bars=horizon_bars,
                 key_getter=key_getter, advance_getter=advance_getter, on_round=on_round, fig=fig,
-                time_limit=time_limit,
+                time_limit=time_limit, chart=chart,
             )
             if result is None:
                 break
@@ -635,7 +656,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description=__doc__,
-        epilog="With none of --rounds, --horizon or --timer, a start screen lets you pick them with buttons.",
+        epilog="With none of --rounds, --horizon, --timer or --chart, "
+        "a start screen lets you pick them with buttons.",
     )
     parser.add_argument("--rounds", type=int, default=None, help=f"default {config.SESSION_ROUNDS}")
     parser.add_argument("--seed", type=int, default=None)
@@ -648,6 +670,10 @@ if __name__ == "__main__":
         help=f"seconds per guess, 0 for no timer (default {config.TIMER_SECONDS})",
     )
     parser.add_argument(
+        "--chart", choices=config.CHART_OPTIONS, default=None,
+        help=f"how rounds are drawn (default {config.CHART_TYPE})",
+    )
+    parser.add_argument(
         "--theme", choices=sorted(THEMES), default=config.THEME,
         help=f"colour theme (default {config.THEME}); doesn't skip the start screen",
     )
@@ -657,21 +683,22 @@ if __name__ == "__main__":
     fig = new_figure(args.theme)
     fig.show()
 
-    if args.rounds is None and args.horizon is None and args.timer is None:
+    if args.rounds is None and args.horizon is None and args.timer is None and args.chart is None:
         settings = choose_settings(fig)
         if settings is None:  # window closed or q pressed before starting
             plt.close(fig)
             sys.exit(0)
-        rounds, horizon, timer = settings
+        rounds, horizon, timer, chart = settings
     else:
         rounds = args.rounds if args.rounds is not None else config.SESSION_ROUNDS
         horizon = args.horizon if args.horizon is not None else config.HORIZON_BARS
         timer = args.timer if args.timer is not None else config.TIMER_SECONDS
+        chart = args.chart if args.chart is not None else config.CHART_TYPE
 
     session_id = str(uuid.uuid4())
     run_session(
         corpus, rounds=rounds, seed=args.seed, session_id=session_id,
-        horizon_bars=horizon, on_round=log_round, fig=fig, time_limit=timer,
+        horizon_bars=horizon, on_round=log_round, fig=fig, time_limit=timer, chart=chart,
     )
 
     summary = stats.summary(session_id)

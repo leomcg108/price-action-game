@@ -59,13 +59,13 @@ python -m intuition_trading.game
 ```
 
 The game opens on a start screen: pick the number of rounds, the prediction
-horizon, an optional timer and a light or dark theme with the buttons, then
-press **Start** (or Enter). Pressing Start straight away plays 10 rounds at a
-30-minute horizon with no timer. Passing `--rounds`, `--horizon` or `--timer`
-on the command line skips the start screen
-(`python -m intuition_trading.game --rounds 20 --horizon 10 --timer 5`).
+horizon, an optional timer, candles or a line, and a light or dark theme with
+the buttons, then press **Start** (or Enter). Pressing Start straight away plays
+10 rounds of candles at a 30-minute horizon with no timer. Passing `--rounds`,
+`--horizon`, `--timer` or `--chart` on the command line skips the start screen
+(`python -m intuition_trading.game --rounds 20 --horizon 10 --timer 5 --chart line`).
 
-![Start screen: the INTUITION TRADING banner, buttons for rounds, horizon, timer and theme, and a Start button](docs/images/start-screen.png)
+![Start screen: the INTUITION TRADING banner, buttons for rounds, horizon, timer, chart and theme, and a Start button](docs/images/start-screen.png)
 
 The theme applies to every screen after the start screen too. To make dark the
 default, set `THEME = "dark"` in `config.py`, or pass `--theme dark` (which only
@@ -188,9 +188,12 @@ single trading day. Cross a boundary and the overnight gap appears as a visible
 discontinuity, a blatant tell, and the label ends up measuring overnight drift
 instead of intraday movement.
 
-**Candlesticks, not a line.** A line chart discards the high–low range and tests
+**Candlesticks by default.** A line chart discards the high–low range and tests
 a subtly different skill. If your experience is with candles, a line chart would
-partly measure unfamiliarity rather than absence of edge.
+partly measure unfamiliarity rather than absence of edge. You can still choose a
+line for a session, but it isn't the same test: every round logs which chart it
+used, so the two can be separated afterwards. The results pool them, so if you
+mix them, your lifetime line describes the mixture.
 
 ---
 
@@ -323,6 +326,8 @@ All in `config.py`:
 | `SESSION_ROUNDS` | `20` | Session length when using the CLI flags; overridable via `--rounds` |
 | `TIMER_OPTIONS` | `(0, 2, 5, 10)` | Seconds per guess (`0` = no timer), on the start screen or via `--timer` |
 | `TIMER_SECONDS` | `0` | Timer when using the CLI flags; overridable via `--timer` |
+| `CHART_OPTIONS` | `("candle", "line")` | How rounds are drawn, on the start screen or via `--chart` |
+| `CHART_TYPE` | `"candle"` | Default chart, and the start screen's preselected one |
 | `ROUND_OPTIONS` | `(10, 20, 30, 50)` | Session lengths offered on the start screen |
 | `LAUNCHER_ROUNDS` | `10` | Start screen's preselected rounds |
 | `LAUNCHER_HORIZON` | `30` | Start screen's preselected horizon |
@@ -367,19 +372,20 @@ ticker, session_date, anchor_idx, lookback_bars, horizon_bars,
 guess, label, correct,
 raw_return, sigma_lookback, trend_r2, minutes_from_open,
 shown_at, answered_at, ms_to_answer,
-time_limit_s, timed_out
+time_limit_s, timed_out, chart
 ```
 
-`time_limit_s` is the session's timer (`0` for none), and `timed_out` marks
-rounds whose `guess` was the random one. Both were added after the original
-schema, so they come last: a log started before them keeps its original header
-(the log is never rewritten), and newer rows carry the two extra fields at the
-end. The game reads such a log correctly. If you analyse it yourself with
+`time_limit_s` is the session's timer (`0` for none), `timed_out` marks rounds
+whose `guess` was the random one, and `chart` is `candle` or `line`. Rounds
+logged before a column existed simply don't have it; every round before `chart`
+was candles. All three were added after the original schema, so they come last:
+a log started before them keeps its original header (the log is never rewritten),
+and newer rows carry the extra fields at the end. The game reads such a log correctly. If you analyse it yourself with
 pandas, a plain `pd.read_csv` will refuse the mismatched rows — pass the full
 column list instead:
 
 ```python
-pd.read_csv("data/rounds.csv", names=[...all 22 columns above...], skiprows=1)
+pd.read_csv("data/rounds.csv", names=[...all 23 columns above...], skiprows=1)
 ```
 
 Three of these are computed at generation time and never shown to you, so you

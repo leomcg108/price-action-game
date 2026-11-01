@@ -42,7 +42,7 @@ def wilson_interval(k: int, n: int, z: float = _Z_95) -> tuple[float, float]:
 # rewritten (the log is never rewritten): newer rows simply carry them as
 # trailing fields the old header doesn't name, mapped back here by position.
 # Rows older than a column don't have it at all.
-ADDED_FIELDS = ("time_limit_s", "timed_out")
+ADDED_FIELDS = ("time_limit_s", "timed_out", "chart")
 
 _UNNAMED = "_unnamed"
 

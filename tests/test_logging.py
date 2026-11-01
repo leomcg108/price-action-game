@@ -24,7 +24,7 @@ _ORIGINAL_FIELDS = [
     "minutes_from_open", "shown_at", "answered_at", "ms_to_answer",
 ]
 # added later, always last, so older logs stay readable
-_EXPECTED_FIELDS = _ORIGINAL_FIELDS + ["time_limit_s", "timed_out"]
+_EXPECTED_FIELDS = _ORIGINAL_FIELDS + ["time_limit_s", "timed_out", "chart"]
 
 
 @pytest.fixture(scope="module")
@@ -173,6 +173,7 @@ def test_appending_to_a_log_with_the_original_header(corpus, tmp_path):
     assert new_row["round_id"] == new.round_id
     assert new_row["time_limit_s"] == "10"
     assert new_row["timed_out"] == "True"
+    assert new_row["chart"] == "candle"
 
 
 def test_a_timed_out_round_is_logged_with_its_random_guess(corpus, tmp_path):
@@ -189,3 +190,31 @@ def test_a_timed_out_round_is_logged_with_its_random_guess(corpus, tmp_path):
     assert row["correct"] == str(result.label == -1)
     assert row["time_limit_s"] == "5"
     assert row["timed_out"] == "True"
+
+
+def test_a_log_holding_every_generation_of_row(corpus, tmp_path):
+    """A real log started under the original header holds 20-field rows,
+    then 22-field rows from the timer's arrival, then 23-field rows: each
+    must read back with the columns it actually has, under names."""
+    from intuition_trading import stats
+
+    path = tmp_path / "rounds.csv"
+    result = _play_one(corpus, seed=1)
+    row = game._round_to_row(result)
+    original = [row[name] for name in _ORIGINAL_FIELDS]
+
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(_ORIGINAL_FIELDS)
+        writer.writerow(original)
+        writer.writerow(original + [5, True])
+    game.log_round(result, path=path)
+
+    oldest, timer_era, newest = stats._read_rounds(path)
+
+    assert "time_limit_s" not in oldest and "chart" not in oldest
+    assert timer_era["time_limit_s"] == "5"
+    assert timer_era["timed_out"] == "True"
+    assert "chart" not in timer_era
+    assert newest["chart"] == "candle"
+    assert newest["timed_out"] == "False"

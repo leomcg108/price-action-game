@@ -97,6 +97,9 @@ def banner(word: str) -> str:
     return "\n".join(" ".join(g[row] for g in glyphs) for row in range(6))
 
 
+_CHART_LABELS = {"candle": "Candles", "line": "Line"}
+
+
 def _paint(button: Button, selected: bool, theme: Theme) -> None:
     color = theme.selected if selected else theme.button
     button.color = color  # Button restores this colour when the mouse leaves
@@ -123,6 +126,7 @@ class Launcher:
         rounds: int = config.LAUNCHER_ROUNDS,
         horizon: int = config.LAUNCHER_HORIZON,
         timer: int = config.LAUNCHER_TIMER,
+        chart: str = config.CHART_TYPE,
     ):
         self.fig = fig
         # held on to: closing the window replaces fig.canvas, and the loop
@@ -131,25 +135,27 @@ class Launcher:
         self.rounds = rounds
         self.horizon = horizon
         self.timer = timer
+        self.chart = chart
         self.theme = theme_of(fig).name
         self.started = False
         self.closed = False
 
         clear_figure(fig)
         self._texts = self._draw_banner()
-        self.round_buttons = self._option_row(0.53, "Rounds", config.ROUND_OPTIONS, str, "rounds")
+        self.round_buttons = self._option_row(0.555, "Rounds", config.ROUND_OPTIONS, str, "rounds")
         self.horizon_buttons = self._option_row(
-            0.435, "Horizon", config.HORIZON_OPTIONS, lambda v: f"{v} min", "horizon"
+            0.475, "Horizon", config.HORIZON_OPTIONS, lambda v: f"{v} min", "horizon"
         )
         self.timer_buttons = self._option_row(
-            0.34, "Timer", config.TIMER_OPTIONS, lambda v: f"{v} s" if v else "Off", "timer"
+            0.395, "Timer", config.TIMER_OPTIONS, lambda v: f"{v} s" if v else "Off", "timer"
         )
-        self.theme_buttons = self._option_row(0.245, "Theme", tuple(THEMES), str.capitalize, "theme")
+        self.chart_buttons = self._option_row(0.315, "Chart", config.CHART_OPTIONS, _CHART_LABELS.get, "chart")
+        self.theme_buttons = self._option_row(0.235, "Theme", tuple(THEMES), str.capitalize, "theme")
         self.start_button = self._start_button()
         # so the session's first clear_figure disconnects them
         fig._widgets = [
-            *self.round_buttons.values(), *self.horizon_buttons.values(),
-            *self.timer_buttons.values(), *self.theme_buttons.values(), self.start_button,
+            *self.round_buttons.values(), *self.horizon_buttons.values(), *self.timer_buttons.values(),
+            *self.chart_buttons.values(), *self.theme_buttons.values(), self.start_button,
         ]
         self._refresh()
 
@@ -161,7 +167,7 @@ class Launcher:
         ]
 
     def _option_row(self, y: float, name: str, options, fmt, attr: str) -> dict:
-        width, height, gap = 0.12, 0.07, 0.02
+        width, height, gap = 0.12, 0.06, 0.02
         left0 = 0.30
         self._texts.append(self.fig.text(left0 - 0.03, y + height / 2, name, ha="right", va="center", fontsize=12))
 
@@ -180,7 +186,7 @@ class Launcher:
         return buttons
 
     def _start_button(self) -> Button:
-        bax = self.fig.add_axes([0.30, 0.04, 0.40, 0.14])
+        bax = self.fig.add_axes([0.30, 0.04, 0.40, 0.13])
         button = Button(bax, "START", color="#2e7d32", hovercolor="#388e3c")
         button.label.set_fontsize(24)
         button.label.set_fontweight("bold")
@@ -200,7 +206,8 @@ class Launcher:
             text.set_color(theme.label)
         for buttons, chosen in (
             (self.round_buttons, self.rounds), (self.horizon_buttons, self.horizon),
-            (self.timer_buttons, self.timer), (self.theme_buttons, self.theme),
+            (self.timer_buttons, self.timer), (self.chart_buttons, self.chart),
+            (self.theme_buttons, self.theme),
         ):
             for value, button in buttons.items():
                 _paint(button, value == chosen, theme)
@@ -211,9 +218,10 @@ class Launcher:
         self.started = True
         self.canvas.stop_event_loop()
 
-    def wait(self) -> tuple[int, int, int] | None:
-        """Block until Start (button or Enter) -> (rounds, horizon, timer),
-        or until the window is closed or q is pressed -> None."""
+    def wait(self) -> tuple[int, int, int, str] | None:
+        """Block until Start (button or Enter) -> (rounds, horizon, timer,
+        chart), or until the window is closed or q is pressed -> None. The
+        theme isn't returned: it stays on the figure the session plays in."""
 
         def on_key(event):
             if event.key == "enter":
@@ -233,10 +241,10 @@ class Launcher:
         for cid in cids:
             canvas.mpl_disconnect(cid)
 
-        return (self.rounds, self.horizon, self.timer) if self.started else None
+        return (self.rounds, self.horizon, self.timer, self.chart) if self.started else None
 
 
-def choose_settings(fig) -> tuple[int, int, int] | None:
-    """Show the start screen in `fig`; returns (rounds, horizon, timer) once
-    the player presses Start, or None if they leave without starting."""
+def choose_settings(fig) -> tuple[int, int, int, str] | None:
+    """Show the start screen in `fig`; returns (rounds, horizon, timer, chart)
+    once the player presses Start, or None if they leave without starting."""
     return Launcher(fig).wait()

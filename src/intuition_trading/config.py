@@ -10,7 +10,12 @@ SESSION_ROUNDS = 20  # overridable via CLI
 TIMER_OPTIONS = (0, 2, 5, 10)  # selectable per session via --timer
 TIMER_SECONDS = 0  # default when using the CLI flags
 
-# Start screen (shown when the game is launched without --rounds/--horizon/--timer)
+# How rounds are drawn. A line hides the high-low range, so it's a different
+# test from candles (see spec); each round logs which one it used.
+CHART_OPTIONS = ("candle", "line")  # selectable per session via --chart
+CHART_TYPE = "candle"  # default, and preselected on the start screen
+
+# Start screen (shown when launched without --rounds/--horizon/--timer/--chart)
 ROUND_OPTIONS = (10, 20, 30, 50)  # session lengths offered as buttons
 LAUNCHER_ROUNDS = 10  # preselected, so pressing Start straight away uses these
 LAUNCHER_HORIZON = 30  # one of HORIZON_OPTIONS

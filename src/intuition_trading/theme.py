@@ -24,6 +24,7 @@ class Theme:
     chart: str  # chart area background
     spine: str  # chart border
     text: str  # axis labels and tick labels
+    line: str  # price line on line charts; not up/down coloured, it means neither
     muted: str  # round counter, reveal reference lines
     note: str  # the reveal's "Time's up" note
     countdown: str  # the timer bar
@@ -55,6 +56,7 @@ LIGHT = Theme(
     chart="#fafafa",
     spine="#f0f0f0",
     text="#101010",
+    line="#1565c0",
     muted="#999999",
     note="#757575",
     countdown="#9e9e9e",
@@ -101,6 +103,7 @@ DARK = Theme(
     chart=_DARK_CHART,
     spine=_DARK_SPINE,
     text=_DARK_TEXT,
+    line="#90caf9",
     muted="#8a8a8a",
     note="#a8a8a8",
     countdown="#8a8a8a",

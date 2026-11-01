@@ -71,21 +71,25 @@ def test_timer_buttons_read_off_then_seconds(screen):
 
 def test_start_straight_away_uses_the_defaults(screen):
     t = _in_background(screen.fig, lambda: _fire(screen.start_button))
-    assert screen.wait() == (config.LAUNCHER_ROUNDS, config.LAUNCHER_HORIZON, config.LAUNCHER_TIMER)
+    assert screen.wait() == (
+        config.LAUNCHER_ROUNDS, config.LAUNCHER_HORIZON, config.LAUNCHER_TIMER, config.CHART_TYPE,
+    )
     t.join(timeout=5)
 
 
 def test_selections_are_passed_through(screen):
     rounds, horizon, timer = config.ROUND_OPTIONS[-1], config.HORIZON_OPTIONS[0], config.TIMER_OPTIONS[-1]
+    chart = "line"
 
     def pick_then_start():
         _fire(screen.round_buttons[rounds])
         _fire(screen.horizon_buttons[horizon])
         _fire(screen.timer_buttons[timer])
+        _fire(screen.chart_buttons[chart])
         _fire(screen.start_button)
 
     t = _in_background(screen.fig, pick_then_start)
-    assert screen.wait() == (rounds, horizon, timer)
+    assert screen.wait() == (rounds, horizon, timer, chart)
     t.join(timeout=5)
 
 
@@ -101,6 +105,11 @@ def test_q_leaves_without_starting(screen):
     t = _in_background(screen.fig, lambda: screen.fig.canvas.callbacks.process("key_press_event", press_q))
     assert screen.wait() is None
     t.join(timeout=5)
+
+
+def test_chart_row_offers_candles_and_line(screen):
+    assert list(screen.chart_buttons) == list(config.CHART_OPTIONS)
+    assert [b.label.get_text() for b in screen.chart_buttons.values()] == ["Candles", "Line"]
 
 
 def test_theme_row_offers_light_and_dark(screen):
