@@ -43,12 +43,14 @@ def test_launcher_defaults_are_offered_options():
     assert config.LAUNCHER_ROUNDS in config.ROUND_OPTIONS
     assert config.LAUNCHER_HORIZON in config.HORIZON_OPTIONS
     assert config.LAUNCHER_TIMER in config.TIMER_OPTIONS
+    assert config.LAUNCHER_REPLAY in config.REPLAY_OPTIONS
 
 
 def test_cli_defaults_are_offered_options():
     """The --horizon/--timer defaults must be values those flags accept."""
     assert config.HORIZON_BARS in config.HORIZON_OPTIONS
     assert config.TIMER_SECONDS in config.TIMER_OPTIONS
+    assert config.REPLAY_SECONDS in config.REPLAY_OPTIONS
 
 
 @pytest.mark.parametrize("word", ["INTUITION", "TRADING"])
@@ -73,23 +75,25 @@ def test_start_straight_away_uses_the_defaults(screen):
     t = _in_background(screen.fig, lambda: _fire(screen.start_button))
     assert screen.wait() == (
         config.LAUNCHER_ROUNDS, config.LAUNCHER_HORIZON, config.LAUNCHER_TIMER, config.CHART_TYPE,
+        config.LAUNCHER_REPLAY,
     )
     t.join(timeout=5)
 
 
 def test_selections_are_passed_through(screen):
     rounds, horizon, timer = config.ROUND_OPTIONS[-1], config.HORIZON_OPTIONS[0], config.TIMER_OPTIONS[-1]
-    chart = "line"
+    chart, replay = "line", config.REPLAY_OPTIONS[-1]
 
     def pick_then_start():
         _fire(screen.round_buttons[rounds])
         _fire(screen.horizon_buttons[horizon])
         _fire(screen.timer_buttons[timer])
         _fire(screen.chart_buttons[chart])
+        _fire(screen.replay_buttons[replay])
         _fire(screen.start_button)
 
     t = _in_background(screen.fig, pick_then_start)
-    assert screen.wait() == (rounds, horizon, timer, chart)
+    assert screen.wait() == (rounds, horizon, timer, chart, replay)
     t.join(timeout=5)
 
 
@@ -105,6 +109,12 @@ def test_q_leaves_without_starting(screen):
     t = _in_background(screen.fig, lambda: screen.fig.canvas.callbacks.process("key_press_event", press_q))
     assert screen.wait() is None
     t.join(timeout=5)
+
+
+def test_replay_row_reads_off_then_seconds_per_bar(screen):
+    assert list(screen.replay_buttons) == list(config.REPLAY_OPTIONS)
+    labels = [b.label.get_text() for b in screen.replay_buttons.values()]
+    assert labels == ["Off"] + [f"{s:g} s/bar" for s in config.REPLAY_OPTIONS if s]
 
 
 def test_chart_row_offers_candles_and_line(screen):

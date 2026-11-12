@@ -24,7 +24,7 @@ _ORIGINAL_FIELDS = [
     "minutes_from_open", "shown_at", "answered_at", "ms_to_answer",
 ]
 # added later, always last, so older logs stay readable
-_EXPECTED_FIELDS = _ORIGINAL_FIELDS + ["time_limit_s", "timed_out", "chart"]
+_EXPECTED_FIELDS = _ORIGINAL_FIELDS + ["time_limit_s", "timed_out", "chart", "replay_s", "replay_bars"]
 
 
 @pytest.fixture(scope="module")

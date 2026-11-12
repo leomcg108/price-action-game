@@ -59,13 +59,14 @@ python -m intuition_trading.game
 ```
 
 The game opens on a start screen: pick the number of rounds, the prediction
-horizon, an optional timer, candles or a line, and a light or dark theme with
-the buttons, then press **Start** (or Enter). Pressing Start straight away plays
-10 rounds of candles at a 30-minute horizon with no timer. Passing `--rounds`,
-`--horizon`, `--timer` or `--chart` on the command line skips the start screen
-(`python -m intuition_trading.game --rounds 20 --horizon 10 --timer 5 --chart line`).
+horizon, an optional timer, an optional replay, candles or a line, and a light
+or dark theme with the buttons, then press **Start** (or Enter). Pressing Start
+straight away plays 10 rounds of candles at a 30-minute horizon with no timer
+or replay. Passing `--rounds`, `--horizon`, `--timer`, `--chart` or `--replay`
+on the command line skips the start screen
+(`python -m intuition_trading.game --rounds 20 --horizon 10 --timer 5 --replay 1`).
 
-![Start screen: the INTUITION TRADING banner, buttons for rounds, horizon, timer, chart and theme, and a Start button](docs/images/start-screen.png)
+![Start screen: the INTUITION TRADING banner, buttons for rounds, horizon, timer, replay, chart and theme, and a Start button](docs/images/start-screen.png)
 
 The theme applies to every screen after the start screen too. To make dark the
 default, set `THEME = "dark"` in `config.py`, or pass `--theme dark` (which only
@@ -87,6 +88,15 @@ that guess. That keeps every round a fair coin flip for the statistics, and it
 means letting the clock run out can never help: it's not a way to sit a round
 out. The reveal says when a guess was the random one, and the results count
 your timeouts.
+
+**Replay** (0.5, 1 or 2 seconds per bar) makes the chart arrive like a live one:
+the round opens with the hour minus its last 15 bars, then those bars come in
+one at a time. The price scale grows to fit only the bars shown so far, so the
+empty space never hints where the replay is heading. Guesses wait until the last
+bar is in (`q` still quits), and the round's clock — and the timer, if set —
+starts from there. It changes how the hour is shown, not what you're asked:
+once the replay finishes, the question is identical to a round without one.
+`REPLAY_BARS` in `config.py` sets how many bars replay.
 
 When the session ends (or you quit), the window shows your results, the same
 summary that's printed to the terminal. **End** (or Enter / **q**) closes the
@@ -328,6 +338,10 @@ All in `config.py`:
 | `TIMER_SECONDS` | `0` | Timer when using the CLI flags; overridable via `--timer` |
 | `CHART_OPTIONS` | `("candle", "line")` | How rounds are drawn, on the start screen or via `--chart` |
 | `CHART_TYPE` | `"candle"` | Default chart, and the start screen's preselected one |
+| `REPLAY_OPTIONS` | `(0, 0.5, 1, 2)` | Seconds per replayed bar (`0` = off), on the start screen or via `--replay` |
+| `REPLAY_SECONDS` | `0` | Replay when using the CLI flags; overridable via `--replay` |
+| `LAUNCHER_REPLAY` | `0` | Start screen's preselected replay (off) |
+| `REPLAY_BARS` | `15` | How many of the hour's last bars replay |
 | `ROUND_OPTIONS` | `(10, 20, 30, 50)` | Session lengths offered on the start screen |
 | `LAUNCHER_ROUNDS` | `10` | Start screen's preselected rounds |
 | `LAUNCHER_HORIZON` | `30` | Start screen's preselected horizon |
@@ -372,20 +386,23 @@ ticker, session_date, anchor_idx, lookback_bars, horizon_bars,
 guess, label, correct,
 raw_return, sigma_lookback, trend_r2, minutes_from_open,
 shown_at, answered_at, ms_to_answer,
-time_limit_s, timed_out, chart
+time_limit_s, timed_out, chart, replay_s, replay_bars
 ```
 
 `time_limit_s` is the session's timer (`0` for none), `timed_out` marks rounds
-whose `guess` was the random one, and `chart` is `candle` or `line`. Rounds
-logged before a column existed simply don't have it; every round before `chart`
-was candles. All three were added after the original schema, so they come last:
-a log started before them keeps its original header (the log is never rewritten),
-and newer rows carry the extra fields at the end. The game reads such a log correctly. If you analyse it yourself with
+whose `guess` was the random one, `chart` is `candle` or `line`, and `replay_s`
+and `replay_bars` are the replay's seconds per bar and bar count (both `0` for
+none). Rounds logged before a column existed simply don't have it; every round
+before `chart` was candles, and every round before `replay_s` had no replay.
+These were all added after the original schema, so they come last: a log
+started before them keeps its original header (the log is never rewritten),
+and newer rows carry the extra fields at the end. The game reads such a log
+correctly. If you analyse it yourself with
 pandas, a plain `pd.read_csv` will refuse the mismatched rows — pass the full
 column list instead:
 
 ```python
-pd.read_csv("data/rounds.csv", names=[...all 23 columns above...], skiprows=1)
+pd.read_csv("data/rounds.csv", names=[...all 25 columns above...], skiprows=1)
 ```
 
 Three of these are computed at generation time and never shown to you, so you

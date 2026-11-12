@@ -15,11 +15,19 @@ TIMER_SECONDS = 0  # default when using the CLI flags
 CHART_OPTIONS = ("candle", "line")  # selectable per session via --chart
 CHART_TYPE = "candle"  # default, and preselected on the start screen
 
-# Start screen (shown when launched without --rounds/--horizon/--timer/--chart)
+# Replay: the last REPLAY_BARS of the hour arrive one at a time instead of all
+# at once, for some of the feel of watching a live chart. Seconds per bar;
+# 0 = off. The guess (and any timer) starts once the last bar is in.
+REPLAY_OPTIONS = (0, 0.5, 1, 2)  # selectable per session via --replay
+REPLAY_SECONDS = 0  # default when using the CLI flags
+REPLAY_BARS = 15  # must leave at least one bar of the hour shown from the start
+
+# Start screen (shown when launched without --rounds/--horizon/--timer/--chart/--replay)
 ROUND_OPTIONS = (10, 20, 30, 50)  # session lengths offered as buttons
 LAUNCHER_ROUNDS = 10  # preselected, so pressing Start straight away uses these
 LAUNCHER_HORIZON = 30  # one of HORIZON_OPTIONS
 LAUNCHER_TIMER = 0  # one of TIMER_OPTIONS
+LAUNCHER_REPLAY = 0  # one of REPLAY_OPTIONS
 
 THEME = "light"  # "light" or "dark"; switchable on the start screen or via --theme
 
