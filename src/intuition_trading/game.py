@@ -27,30 +27,22 @@ from intuition_trading.theme import LIGHT, THEMES, Theme
 # --- Chart -------------------------------------------------------------
 
 
-def _to_mpf_frame(bars: pd.DataFrame, total_bars: int) -> pd.DataFrame:
-    """Lay `bars` onto a synthetic, contiguous 1-minute timeline and pad it
-    out to `total_bars` (LOOKBACK_BARS + the session's chosen horizon) rows
-    with NaN OHLC.
+def _bars_frame(bars: pd.DataFrame, offset: int, total_bars: int) -> pd.DataFrame:
+    """Lay `bars` onto a synthetic, contiguous 1-minute timeline of
+    `total_bars` (LOOKBACK_BARS + the session's chosen horizon) rows, from
+    position `offset`, with every other row NaN OHLC.
 
     mplfinance plots at sequential integer positions regardless of the actual
     calendar spacing of a DatetimeIndex, so this both avoids gaps in the
-    rendered candles and, via the trailing NaN rows -- which mplfinance
-    simply leaves blank -- reserves the horizon's width as empty space
-    without ever handing mplfinance real horizon data.
+    rendered candles and, via the NaN rows -- which mplfinance simply leaves
+    blank -- reserves the rest of the width as empty space without ever
+    handing mplfinance data it shouldn't draw. Plotting a frame with an
+    `offset` onto existing axes adds just those bars: that's how the replay
+    and the reveal draw theirs.
     """
     synthetic_index = pd.date_range("2000-01-01", periods=total_bars, freq="1min")
     frame = pd.DataFrame(index=synthetic_index, columns=["Open", "High", "Low", "Close"], dtype=float)
-    frame.iloc[: len(bars)] = bars[["open", "high", "low", "close"]].to_numpy()
-    return frame
-
-
-def _horizon_frame(horizon_bars: pd.DataFrame, total_bars: int) -> pd.DataFrame:
-    """Horizon bars laid onto the same synthetic timeline, at the offset
-    right after the lookback, with everything before left NaN so replotting
-    onto the existing axes only adds the new candles."""
-    synthetic_index = pd.date_range("2000-01-01", periods=total_bars, freq="1min")
-    frame = pd.DataFrame(index=synthetic_index, columns=["Open", "High", "Low", "Close"], dtype=float)
-    frame.iloc[config.LOOKBACK_BARS :] = horizon_bars[["open", "high", "low", "close"]].to_numpy()
+    frame.iloc[offset : offset + len(bars)] = bars[["open", "high", "low", "close"]].to_numpy()
     return frame
 
 
@@ -173,6 +165,18 @@ def _plot_bars(ax, frame: pd.DataFrame, chart: str) -> None:
     )
 
 
+def _plot_more_bars(
+    ax, bars: pd.DataFrame, offset: int, total_bars: int, chart: str, prev_close: float,
+) -> None:
+    """Add `bars` at positions from `offset` to a chart already showing the
+    bars before them. A line is joined up from `prev_close` (the close just
+    before `offset`), so it carries on unbroken."""
+    frame = _bars_frame(bars, offset, total_bars)
+    if chart == "line":
+        frame.iloc[offset - 1] = prev_close
+    _plot_bars(ax, frame, chart)
+
+
 def _draw_arrow(bax, direction: str, color: str) -> None:
     """A thick, colour-coordinated arrow -- the button's only marking, drawn
     on the button's own axes rather than relying on font glyphs/weight."""
@@ -243,10 +247,13 @@ def _install_buttons(fig) -> None:
 
 def render(
     view: PuzzleView, round_num: int = 1, total_rounds: int = 1, fig=None,
-    chart: str = config.CHART_TYPE,
+    chart: str = config.CHART_TYPE, shown_bars: int | None = None,
 ):
     """Render the question: lookback bars only, with the horizon's width
     reserved as empty space to the right.
+
+    `shown_bars` draws only the lookback's first that-many bars, y-limits
+    fitted to just those, for a replay to bring in the rest (see _Replay).
 
     The signature accepts PuzzleView plus plain session settings (progress
     ints, the chart type) and the figure to draw into -- never PuzzleAnswer
@@ -258,7 +265,7 @@ def render(
     reveal (horizon candles, limits, result mark) survives into this question.
     """
     total_bars = config.LOOKBACK_BARS + view.horizon_width
-    frame = _to_mpf_frame(view.bars, total_bars)
+    shown = view.bars if shown_bars is None else view.bars.iloc[:shown_bars]
 
     if fig is None:
         fig = new_figure()
@@ -266,8 +273,8 @@ def render(
         clear_figure(fig)
 
     ax = fig.add_axes(_CHART_RECT)
-    _plot_bars(ax, frame, chart)
-    _style_axes(ax, _range_ylim(view.bars), total_bars)
+    _plot_bars(ax, _bars_frame(shown, 0, total_bars), chart)
+    _style_axes(ax, _range_ylim(shown), total_bars)
     _draw_round_counter(ax, round_num, total_rounds)
 
     _install_buttons(fig)
@@ -311,11 +318,10 @@ def reveal(
     `timed_out`/`guess` add a note that the guess was the random one made
     when the clock ran out."""
     total_bars = config.LOOKBACK_BARS + view.horizon_width
-    frame = _horizon_frame(answer.horizon_bars, total_bars)
-    if chart == "line":
-        # from the anchor's close, so the line carries on unbroken
-        frame.iloc[config.LOOKBACK_BARS - 1] = view.bars["close"].iloc[-1]
-    _plot_bars(ax, frame, chart)
+    _plot_more_bars(
+        ax, answer.horizon_bars, config.LOOKBACK_BARS, total_bars, chart,
+        prev_close=view.bars["close"].iloc[-1],  # the anchor's
+    )
 
     theme = theme_of(fig)
     ylim = _expand_ylim(_range_ylim(view.bars), view.bars, answer.horizon_bars)
@@ -413,6 +419,79 @@ class _Countdown:
         self.bar.remove()
 
 
+class _Replay:
+    """Brings the last bars of the lookback onto a question one at a time,
+    re-fitting the y-scale to just the bars shown so far -- so empty
+    headroom never hints where the replay is about to go.
+
+    Takes the PuzzleView only, like render(): it can only ever draw lookback
+    bars, all of which are on screen before the guess anyway.
+    """
+
+    def __init__(self, ax, view: PuzzleView, shown: int, chart: str):
+        self.ax = ax
+        self.view = view
+        self.shown = shown  # bars on screen so far
+        self.chart = chart
+        self.total_bars = config.LOOKBACK_BARS + view.horizon_width
+
+    @property
+    def done(self) -> bool:
+        return self.shown >= len(self.view.bars)
+
+    def step(self) -> None:
+        """Bring in the next bar."""
+        bars = self.view.bars
+        i = self.shown
+        _plot_more_bars(
+            self.ax, bars.iloc[i : i + 1], i, self.total_bars, self.chart, prev_close=bars["close"].iloc[i - 1],
+        )
+        self.shown += 1
+        _style_axes(self.ax, _range_ylim(bars.iloc[: self.shown]), self.total_bars)
+        self.ax.figure.canvas.draw_idle()
+
+
+def _run_replay(fig, replay: _Replay, seconds_per_bar: float) -> bool:
+    """Step `replay` on a timer, one bar every `seconds_per_bar`, until the
+    whole lookback is in. Returns False if the player quit (q, or closing
+    the window) meanwhile.
+
+    Guesses aren't taken until it's finished: an arrow key does nothing, and
+    a button click only interrupts the wait, which resumes.
+    """
+    canvas = fig.canvas  # held on to: closing the window replaces fig.canvas
+    quit = False
+
+    def tick():
+        replay.step()
+        if replay.done:
+            timer.stop()
+            canvas.stop_event_loop()
+
+    def leave(_event=None):
+        nonlocal quit
+        quit = True
+        timer.stop()
+        canvas.stop_event_loop()
+
+    def on_key(event):
+        if event.key == "q":
+            leave()
+
+    timer = canvas.new_timer(interval=int(seconds_per_bar * 1000))
+    timer.add_callback(tick)
+    cids = [canvas.mpl_connect("key_press_event", on_key), canvas.mpl_connect("close_event", leave)]
+    timer.start()
+    try:
+        while not (replay.done or quit):
+            canvas.start_event_loop(timeout=-1)
+    finally:
+        timer.stop()
+        for cid in cids:
+            canvas.mpl_disconnect(cid)
+    return not quit
+
+
 def _wait_for_any_key(fig) -> None:
     """Block until any key is pressed or a button is clicked."""
     fig._clicked_key = None
@@ -462,6 +541,8 @@ class RoundResult:
     time_limit_s: int  # seconds allowed for the guess; 0 = no timer
     timed_out: bool  # clock ran out, so `guess` was picked at random
     chart: str  # how the round was drawn, one of config.CHART_OPTIONS
+    replay_s: float  # seconds per replayed bar; 0 = no replay
+    replay_bars: int  # how many of the lookback's last bars were replayed
 
 
 # --- Logging ---------------------------------------------------------------
@@ -514,9 +595,16 @@ def play_round(
     time_limit: int = 0,
     coin_flip=lambda: random.choice((1, -1)),
     chart: str = config.CHART_TYPE,
+    replay_s: float = 0,
+    replay_runner=_run_replay,
 ) -> RoundResult | None:
     """Play one round: render, wait for a guess, reveal. Returns None if the
     player quit instead of answering.
+
+    With `replay_s` set, the lookback's last config.REPLAY_BARS bars arrive
+    one every `replay_s` seconds before the guess; the round's clock
+    (`shown_at`, and any timer) starts once the last one is in.
+    `replay_runner` drives that, real or injected like the key getters.
 
     With `time_limit` seconds set, a countdown runs during the guess; if it
     runs out, `coin_flip` picks the guess. Its own randomness, not `rng`, so
@@ -535,9 +623,15 @@ def play_round(
     view, answer = generate_puzzle(corpus, rng, horizon_bars=horizon_bars)
 
     owns_fig = fig is None
-    fig, ax = render(view, round_num, total_rounds, fig=fig, chart=chart)
+    replay_bars = config.REPLAY_BARS if replay_s else 0
+    shown_first = config.LOOKBACK_BARS - replay_bars
+    fig, ax = render(view, round_num, total_rounds, fig=fig, chart=chart, shown_bars=shown_first)
     fig.show()
-    shown_at = datetime.now(timezone.utc)
+    if replay_bars and not replay_runner(fig, _Replay(ax, view, shown_first, chart), replay_s):
+        if owns_fig:
+            plt.close(fig)
+        return None  # quit mid-replay: nothing was answered, so nothing is logged
+    shown_at = datetime.now(timezone.utc)  # the whole lookback is on screen from here
 
     countdown = _Countdown(fig, time_limit) if time_limit else None
     valid_keys = ("up", "down", "q") + (("timeout",) if countdown else ())
@@ -585,6 +679,8 @@ def play_round(
         time_limit_s=time_limit,
         timed_out=timed_out,
         chart=chart,
+        replay_s=float(replay_s),
+        replay_bars=replay_bars,
     )
     on_round(result)  # logged here, before the reveal is drawn (non-negotiable #2)
 
@@ -608,13 +704,16 @@ def run_session(
     fig=None,
     time_limit: int = 0,
     chart: str = config.CHART_TYPE,
+    replay_s: float = 0,
+    replay_runner=_run_replay,
 ) -> list[RoundResult]:
     """Play a fixed-length session. Stops early if the player quits.
 
     `horizon_bars` (one of config.HORIZON_OPTIONS), `time_limit` (one of
-    config.TIMER_OPTIONS, in seconds; 0 = no timer) and `chart` (one of
-    config.CHART_OPTIONS) apply to every round in the session -- they're
-    session settings, not per-round ones.
+    config.TIMER_OPTIONS, in seconds; 0 = no timer), `chart` (one of
+    config.CHART_OPTIONS) and `replay_s` (one of config.REPLAY_OPTIONS,
+    seconds per bar; 0 = no replay) apply to every round in the session --
+    they're session settings, not per-round ones.
 
     `fig` is the window to play in (e.g. the one the start screen was shown
     in); the caller then owns closing it. Without one, the session opens
@@ -632,7 +731,7 @@ def run_session(
             result = play_round(
                 corpus, rng, session_id, round_num=round_num, total_rounds=rounds, horizon_bars=horizon_bars,
                 key_getter=key_getter, advance_getter=advance_getter, on_round=on_round, fig=fig,
-                time_limit=time_limit, chart=chart,
+                time_limit=time_limit, chart=chart, replay_s=replay_s, replay_runner=replay_runner,
             )
             if result is None:
                 break
@@ -656,7 +755,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description=__doc__,
-        epilog="With none of --rounds, --horizon, --timer or --chart, "
+        epilog="With none of --rounds, --horizon, --timer, --chart or --replay, "
         "a start screen lets you pick them with buttons.",
     )
     parser.add_argument("--rounds", type=int, default=None, help=f"default {config.SESSION_ROUNDS}")
@@ -674,6 +773,10 @@ if __name__ == "__main__":
         help=f"how rounds are drawn (default {config.CHART_TYPE})",
     )
     parser.add_argument(
+        "--replay", type=float, choices=config.REPLAY_OPTIONS, default=None,
+        help=f"seconds per replayed bar, 0 for no replay (default {config.REPLAY_SECONDS})",
+    )
+    parser.add_argument(
         "--theme", choices=sorted(THEMES), default=config.THEME,
         help=f"colour theme (default {config.THEME}); doesn't skip the start screen",
     )
@@ -683,22 +786,25 @@ if __name__ == "__main__":
     fig = new_figure(args.theme)
     fig.show()
 
-    if args.rounds is None and args.horizon is None and args.timer is None and args.chart is None:
+    # any session setting given on the command line skips the start screen
+    if all(v is None for v in (args.rounds, args.horizon, args.timer, args.chart, args.replay)):
         settings = choose_settings(fig)
         if settings is None:  # window closed or q pressed before starting
             plt.close(fig)
             sys.exit(0)
-        rounds, horizon, timer, chart = settings
+        rounds, horizon, timer, chart, replay = settings
     else:
         rounds = args.rounds if args.rounds is not None else config.SESSION_ROUNDS
         horizon = args.horizon if args.horizon is not None else config.HORIZON_BARS
         timer = args.timer if args.timer is not None else config.TIMER_SECONDS
         chart = args.chart if args.chart is not None else config.CHART_TYPE
+        replay = args.replay if args.replay is not None else config.REPLAY_SECONDS
 
     session_id = str(uuid.uuid4())
     run_session(
         corpus, rounds=rounds, seed=args.seed, session_id=session_id,
         horizon_bars=horizon, on_round=log_round, fig=fig, time_limit=timer, chart=chart,
+        replay_s=replay,
     )
 
     summary = stats.summary(session_id)
